@@ -5,7 +5,7 @@ Trough
 Big data, small databases.
 ==========================
 
-The overall thrust of the design of trough is to separate a very large dataset into small SQLite databases that can be quickly and easily queried. The system focuses on simplicity and easy of administration and setup.
+The overall thrust of the design of trough is to separate a very large dataset into small SQLite databases that can be quickly and easily queried. The system focuses on simplicity and ease of administration and setup.
 
 
 =============

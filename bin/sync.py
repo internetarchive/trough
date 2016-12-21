@@ -7,6 +7,98 @@ import socket
 import json
 import os
 import time
+import random
+
+class Segment(object):
+    def __init__(self, consul, segment_id, size):
+        self.consul = consul
+        self.id = segment_id
+        self.size = size
+    def all_copies(self, full_record=False):
+        ''' returns the 'assigned' SegmentCopies, whether or not they are 'up' '''
+        assignments = []
+        for host in get_hosts(type='read'):
+            # then for each host, we'll check the k/v store
+            record = None
+            if full_record:
+                record = consul.kv.get_record(host_database_key)
+            elif consul.kv.get(self.host_key(host['hostname'])):
+                record = host_database_key
+                assignments.push(self.host_key(host['hostname']))
+            if record:
+                assignments.push(record)
+        return assignments
+    def up_copies(self):
+        '''returns the 'up' SegmentCopies'''
+        return consul.catalog.service("trough/read/%s" % database_name)
+    def host_key(self, host):
+        return "%s/%s" % (host, self.id)
+    def is_assigned_to_host(self, host):
+        return bool(self.consul.kv.get(self.host_key(host)))
+    def minimum_assignments(self):
+        '''This function should return the minimum number of assignments which is acceptable for a given database.'''
+        return 2
+        raise Exception('Not Implemented')
+
+class HostRegistry(object):
+    ''' this should probably implement all of the 'host' oriented functions below. '''
+    def __init__(self, consul):
+        self.consul = consul
+    def get_hosts(self, type='read'):
+        return self.consul.catalog.service('trough/%s' % type)
+    def look_for_hosts(self):
+        return bool(self.get_hosts(type='read') + self.get_hosts(type='write'))
+    def host_load(self):
+        output = []
+        for host in self.get_hosts(type='read'):
+            assigned_bytes = sum(self.consul.kv["%s/" % host['hostname'] ])
+            total_bytes = self.consul.kv["%s" % host['hostname'] ]
+            output.push({
+                'hostname': host['hostname'],
+                'remaining_bytes': total_bytes - assigned_bytes,
+                'assigned_bytes': assigned_bytes,
+                'total_bytes': total_bytes,
+                'load_ratio': (total_bytes - assigned_bytes) / total_bytes
+            })
+        return output
+    def host_bytes_remaining(self):
+        output = self.host_load()
+        return 
+    def underloaded_hosts(self):
+        output = []
+        hosts = self.host_load()
+        average_load_ratio = sum([host['load_ratio'] for host in hosts]) / len(hosts)
+        # 5% below the average load is an acceptable ratio
+        for host in hosts:
+            # TODO: figure out a better way to describe the "acceptably empty" percentage.
+            # Noah suggests (a multiplication factor) * (the largest database / total dataset size), capped at 1.0 (100%)
+            if host['load_ratio'] < (average_load - 0.05):
+                host['average_load_ratio'] = average_ratio
+                output.push(host)
+        return output
+    def host_is_advertised(self, host):
+        for host in self.get_hosts(type='read'):
+            if host['hostname'] = host:
+                return True
+        return False
+    def advertise(self, name, service_id, address=settings['EXTERNAL_IP'], \
+            port=settings['READ_PORT'], tags=[], ttl=settings['READ_NODE_DNS_TTL']):
+        self.consul.agent.service.register(name, service_id=service_id, address=address, port=port, tags=tags, ttl=ttl)
+    def health_check(self, pool, service_name):
+        return self.consul.health.node("trough/%s/%s" % (pool, service_name))
+    def create_health_check(self, name, pool, service_name, ttl=ttl, notes=notes):
+        return self.consul.agent.check.register(name, check_id="trough/%s/%s" % (pool, service_name), ttl=ttl, notes=notes)
+    def reset_health_check(self, pool, service_name):
+        return self.consul.agent.check.ttl_pass("trough/%s/%s" % (pool, service_name))
+    def assign(self, host, segment):
+        return self.consul.kv[segment.host_key(host)] = segment.size
+    def unassign(self, host, segment):
+        del consul.kv[segment.host_key(host)]
+    def set_quota(self, host, quota):
+        return self.consul.kv[host] = quota
+    def segments_for_host(host):
+        return [Segment(consul=self.consul, segment_id=k.split('/')[-1], size=v) for k, v in self.consul.kv.find("%s/" % host)]
+
 
 ##################################################
 # SERVER/MASTER MODE
@@ -51,40 +143,7 @@ def hold_election():
                             notes="Sync Servers hold an election every %ss. They are unhealthy after missing 2 elections" % settings['ELECTION_CYCLE'])
         return True
 
-def look_for_hosts():
-    return bool(consul.catalog.service('trough/read') + consul.catalog.service('trough/write'))
-
-def host_bytes_remaining(consul):
-    output = []
-    for host in consul.catalog.service('trough/read'):
-        served_bytes = sum(consul.kv["%s/" % host['hostname'] ])
-        total_bytes = consul.kv["%s" % host['hostname'] ]
-        output.push({'host': host['hostname'], 'remaining_bytes': total_bytes - served_bytes})
-    return sorted(output, key=lambda host: host['remaining_bytes'], reverse=True)
-
-def is_assigned(consul, database_name):
-    # check service registry to see if the database is 'up' (O(1))
-    output = consul.catalog.service(database_name)
-    if output:
-        return True
-    # if database is not up, check k/v store to see if has been assigned:
-    # for each host, check if the database is in the k/v for that host.
-    # this scales linearly with hosts, not databases. (O(n) where n = # of hosts)
-    # this line looks up hosts that are available for read
-    # note that any unhealthy nodes will be filtered out at this point.
-    for host in consul.catalog.service('trough/read'):
-        # then for each host, we'll check the k/v store
-        try:
-            if consul.kv["%s/%s" % (host.hostname, database_name)]:
-                return True
-        # if we didn't find the key, keep looking
-        except KeyError as e:
-            continue
-    # the key is not present, and the service doesn't exist. It's not assigned.
-    return False
-
-
-def sync_master():
+def run_sync_master():
     # TODO: this needs to execute periodically. how? cron? or long-running process?
     ''' 
     "server" mode:
@@ -94,16 +153,17 @@ def sync_master():
         - check consul to make sure each item is assigned to a worker
         - if it is not assigned:
             - assign it, based on the available quota on each worker
-        TODO: - if the number of assignments for this database are greater than they should be, and all copies are 'up':
-            TODO: - unassign the oldest copy (this requires a change to k/v store that has datetime)
-    TODO: - for list of hosts:
-        TODO: - if this host meets a "too empty" metric
-            TODO: - loop over the databases
-            TODO: - add an extra assignment to the new host for every Nth database, where n is the number of 'up' nodes
+        - if the number of assignments for this database are greater than they should be, and all copies are 'up':
+            - unassign the copy with the lowest assignment index
+    - for list of hosts:
+        - if this host meets a "too empty" metric
+            - loop over the databases
+            - add extra assignments to the "too empty" host in a ratio of databases which corresponds to the delta from the average load.
     '''
     leader = False
     found_hosts = False
     consul = consulate.Consul()
+    registry = HostRegistry(consul=consul)
 
     # hold an election every settings['ELECTION_CYCLE'] seconds
     while not leader:
@@ -114,19 +174,50 @@ def sync_master():
         sleep(settings['HOST_CHECK_WAIT_PERIOD'])
 
     # we are assured that we are the master, and that we have machines to assign to.
-    sb_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'], use_trash=False)
+    sb_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+
     file_listing = sb_client.ls(settings['HDFS_PATH'])
 
+    file_total = 0
     for file in file_listing:
         local_part = file['path'].split('/')[-1]
         local_part = local_part.replace('.sqlite', '')
-        if not is_assigned(consul, local_part):
-            emptiest_host = host_bytes_remaining(consul)[0]
-            host_database_key = "%s/%s" % (emptiest_host, local_part)
+        segment = Segment(consul=consul, segment_id=local_part, size=file['length'])
+        if not segment.enough_copies():
+            emptiest_host = sorted(registry.host_load(), key=lambda host: host['remaining_bytes'], reverse=True)[0]
             # assign the byte count of the file to a key named, e.g. /hostA/database
-            consul.kv[host_database_key] = file['length']
-        # we must deal with rebalancing: see TODOs above.
-        host_bytes_remaining(consul)[0]
+            registry.assign(emptiest_host, segment)
+        else:
+            # If we find too many 'up' copies
+            if segment.up_copies() > segment.minimum_assignments():
+                # If so, delete the copy with the lowest 'CreateIndex', which records the
+                # order in which keys are created.
+                assignments = segment.all_copies(full_record=True)
+                assignments = sorted(assignments, key=lambda record: record['CreateIndex'])
+                host = assignments[0].split("/")[0]
+                # remove the assignment
+                registry.unassign(host, segment)
+        file_total += 1
+
+    for host in registry.underloaded_hosts():
+        '''while the load on this host is lower than the acceptable load, reassign 
+        segments in the file listing order returned from snakebite.'''
+        ratio_to_reassign = host['average_load_ratio'] - host['load_ratio']
+        file_listing = sb_client.ls(settings['HDFS_PATH'])
+        for file in file_listing:
+            local_part = file['path'].split('/')[-1]
+            local_part = local_part.replace('.sqlite', '')
+            segment = Segment(consul=consul, segment_id=local_part, size=file['length'])
+            # if this segment is already assigned to this host, next segment.
+            if segment.is_assigned_to_host(host):
+                continue
+            # add an assignment for this segment to this host.
+            registry.assign(host, segment)
+            host['assigned_bytes'] += segment.size
+            host['load_ratio'] = host['assigned_bytes'] * host['total_bytes']
+            if host['load_ratio'] >= host['average_load_ratio'] * 0.95:
+                break
+
 
 ##################################################
 # LOCAL MODE
@@ -139,12 +230,6 @@ def check_local_config():
         assert settings['READ_PORT'], "SYNC_PORT must be set. We need to know the output port."
     except AssertionError as e:
         sys.exit("{} Exiting...".format(str(e)))
-
-def have_advertised_myself(consul):
-    for host in consul.catalog.service('trough/read'):
-        if host['hostname'] = settings['HOSTNAME']:
-            return True
-    return False
 
 def check_database_exists(database):
     if os.file.exists(os.join(settings['LOCAL_DATA'], "%s.sqlite" % database)):
@@ -162,7 +247,7 @@ def copy_database_from_hdfs(database):
     destination = settings['LOCAL_DATA']
     return sb_client.copyToLocal(source, destination)
 
-def sync_local():
+def run_sync_local():
     '''
     "local" mode:
     - if not set up, 
@@ -182,44 +267,41 @@ def sync_local():
     - set up a health check (TTL) for myself, 2 * 'timer'
     '''
     consul = consulate.Consul()
+    registry = HostRegistry(consul)
 
-    if not have_advertised_myself(consul):
-        consul.agent.service.register('Trough Read Node', 
-                                service_id='trough/nodes/%s' % settings['HOSTNAME'],
-                                address=settings['EXTERNAL_IP'],
-                                port=settings['READ_PORT'],
-                                tags=[],
-                                ttl=settings['READ_NODE_DNS_TTL'])
+    my_hostname = settings['HOSTNAME']
+
+    if not registry.host_is_advertised(my_hostname):
+        registry.advertise('Trough Read Node', service_id='trough/nodes/%s' % my_hostname)
+
     # if there is a health check for this node
-    if consul.health.node("trough/nodes/%s" % settings['HOSTNAME']):
+    if registry.health_check('nodes', my_hostname):
         # reset the countdown
-        consul.agent.check.ttl_pass("trough/nodes/%s" % settings['HOSTNAME'])
-    consul.kv[settings['HOSTNAME']] = settings['STORAGE_IN_BYTES']
+        registry.reset_health_check('nodes', my_hostname)
+    registry.set_quota(my_hostname, settings['STORAGE_IN_BYTES'])
     loop_timer = time.time()
-    sb_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'], use_trash=False)
-    for assignment in consul.kv.find(['%s/' % settings['HOSTNAME']]):
-        database_name = assignment.split("/")[-1]
+    sb_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    for segment in registry.segments_for_host(my_hostname):
+        database_name = segment.id
         exists = check_database_exists(database_name)
         matches_hdfs = check_database_matches_hdfs(sb_client, database_name)
         if not exists or not matches_md5:
             copy_database_from_hdfs(sb_client, database_name)
-            consul.agent.service.register('Database %s' % database_name, 
-                            service_id='trough/read/%s' % database_name,
-                            address=settings['EXTERNAL_IP'],
-                            port=settings['READ_PORT'],
-                            tags=[database_name],
-                            ttl=settings['READ_DATABASE_DNS_TTL'])
-            # to calculate the database TTL, use (settings[''] + total loop time, so far) * 2
+            registry.advertise('Database %s' % database_name, service_id='trough/read/%s' % database_name, tags=[database_name])
+            # to calculate the database TTL, use (settings['SYNC_LOOP_TIMING'] + total loop time, so far) * 2
             database_health_ttl = round(settings['SYNC_LOOP_TIMING'] + (loop_timer - time.time()) * 2)
-            consul.agent.check.register('Database %s Is Healthy' % database_name,
-                            check_id="trough/read/%s" % database_name,
+            registry.create_health_check(name='Database %s Is Healthy' % database_name,
+                            pool="read",
+                            service_name=database_name,
                             ttl=database_health_ttl,
                             notes="Database Health Checks occur every %ss. They are unhealthy after missing (appx) 2 sync loops." % settings['SYNC_LOOP_TIMING'])
-        consul.agent.check.ttl_pass('trough/read/%s' % database_name)
-    if not consul.health.node("trough/nodes/%s" % settings['HOSTNAME']):
+        registry.reset_health_check('read', database_name)
+    if not registry.health_check('nodes', my_hostname):
+        # to calculate the node TTL, use (settings['SYNC_LOOP_TIMING'] + total loop time) * 2
         node_health_ttl = round(settings['SYNC_LOOP_TIMING'] + (loop_timer - time.time()) * 2)
-        consul.agent.check.register('Node %s Is Healthy' % settings['HOSTNAME'],
-                        check_id="trough/nodes/%s" % settings['HOSTNAME'],
+        registry.create_health_check(name='Node %s Is Healthy' % my_hostname,
+                        pool="nodes",
+                        service_name=my_hostname,
                         ttl=node_health_ttl,
                         notes="Node Health Checks occur every %ss. They are unhealthy after missing (appx) 2 sync loops." % settings['SYNC_LOOP_TIMING'])
 
@@ -257,7 +339,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.server:
         check_master_config()
-        sync_server()
+        run_sync_master()
     else:
         check_local_config()
-        sync_local()
+        run_sync_local()
