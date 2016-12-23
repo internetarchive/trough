@@ -22,7 +22,7 @@ def get_storage_in_bytes(settings):
     return statvfs.f_frsize * statvfs.f_blocks * 0.8
 
 logging.basicConfig(
-        stream=sys.stderr, level=logging.DEBUG,
+        stream=sys.stderr, level=logging.INFO, # snakebite raises exceptions on DEBUG
         format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
                '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
 
