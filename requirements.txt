@@ -1,0 +1,6 @@
+consulate==0.6.0
+protobuf==3.1.0.post1
+PyYAML==3.12
+requests==2.12.4
+six==1.10.0
+snakebite==2.8.2
