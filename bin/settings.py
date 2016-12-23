@@ -2,6 +2,7 @@ import logging
 import yaml
 import sys
 import os
+import socket
 
 def get_ip():
     import socket
@@ -21,7 +22,7 @@ def get_storage_in_bytes(settings):
     return statvfs.f_frsize * statvfs.f_blocks * 0.8
 
 logging.basicConfig(
-        stream=sys.stderr, level=logging.INFO,
+        stream=sys.stderr, level=logging.DEBUG,
         format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
                '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
 
@@ -39,10 +40,11 @@ settings = {
     'WRITE_PORT': 6002,
     'EXTERNAL_IP': get_ip(),
     'HOST_CHECK_WAIT_PERIOD': 5, # if the sync master starts before anything else, poll for hosts to assign to every N seconds.
-    'STORAGE_IN_BYTES': None # this will be set later, if it is not set in settings.yml
-    'READ_NODE_DNS_TTL': 60 * 10 # 10 minute default
-    'READ_DATABASE_DNS_TTL': 60 * 10 # 10 minute default
-    'SYNC_LOOP_TIMING': 60 * 2 # do a 'sync' loop every N seconds (default: 2m. applies to both local and master sync nodes)
+    'STORAGE_IN_BYTES': None, # this will be set later, if it is not set in settings.yml
+    'HOSTNAME': socket.gethostname(),
+    'READ_NODE_DNS_TTL': 60 * 10, # 10 minute default
+    'READ_DATABASE_DNS_TTL': 60 * 10, # 10 minute default
+    'SYNC_LOOP_TIMING': 60 * 2, # do a 'sync' loop every N seconds (default: 2m. applies to both local and master sync nodes)
 }
 
 try:
