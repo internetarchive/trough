@@ -12,14 +12,14 @@ def get_ip():
     s.close()
     return output
 
-def get_storage_in_bytes(settings):
+def get_storage_in_bytes(local_data):
     '''
     Set a reasonable default for storage quota.
 
     Look up the settings['LOCAL_DATA'] directory, calculate the bytes on the device on which it is mounted, take 80% of total.
     '''
-    statvfs = os.statvfs(settings['LOCAL_DATA'])
-    return statvfs.f_frsize * statvfs.f_blocks * 0.8
+    statvfs = os.statvfs(local_data)
+    return int(statvfs.f_frsize * statvfs.f_blocks * 0.8)
 
 logging.basicConfig(
         stream=sys.stderr, level=logging.INFO, # snakebite raises exceptions on DEBUG
@@ -52,8 +52,15 @@ try:
         yaml_settings = yaml.load(f)
         for key in yaml_settings.keys():
             settings[key] = yaml_settings[key]
-        if settings['STORAGE_IN_BYTES'] is None:
-            settings['STORAGE_IN_BYTES'] = get_storage_in_bytes(settings)
 except (IOError, AttributeError) as e:
     logging.warn('%s -- using default settings', e)
+
+if not os.path.isdir(settings['LOCAL_DATA']):
+    logging.warn("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
+    os.makedirs(settings['LOCAL_DATA'])
+
+if settings['STORAGE_IN_BYTES'] is None:
+    storage_in_bytes = get_storage_in_bytes(settings['LOCAL_DATA'])
+    logging.warn("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s bytes" % (settings['LOCAL_DATA'], storage_in_bytes))
+    settings['STORAGE_IN_BYTES'] = storage_in_bytes
     

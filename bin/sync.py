@@ -11,27 +11,28 @@ import random
 import sys
 
 class Segment(object):
-    def __init__(self, consul, segment_id, size):
+    def __init__(self, consul, segment_id, size, registry):
         self.consul = consul
         self.id = segment_id
         self.size = size
+        self.registry = registry
     def all_copies(self, full_record=False):
         ''' returns the 'assigned' SegmentCopies, whether or not they are 'up' '''
         assignments = []
-        for host in get_hosts(type='read'):
+        for host in self.registry.get_hosts(type='read'):
             # then for each host, we'll check the k/v store
             record = None
             if full_record:
-                record = consul.kv.get_record(host_segment_key)
-            elif consul.kv.get(self.host_key(host['hostname'])):
-                record = host_segment_key
-                assignments.push(self.host_key(host['hostname']))
+                record = self.consul.kv.get_record(self.host_key(host['Node']))
+            elif self.consul.kv.get(self.host_key(host['Node'])):
+                record = self.host_key(host['Node'])
+                assignments.append(self.host_key(host['Node']))
             if record:
-                assignments.push(record)
+                assignments.append(record)
         return assignments
     def up_copies(self):
         '''returns the 'up' SegmentCopies'''
-        return consul.catalog.service("trough/read/%s" % segment_name)
+        return self.consul.catalog.service("trough/read/%s" % segment_name)
     def host_key(self, host):
         return "%s/%s" % (host, self.id)
     def is_assigned_to_host(self, host):
@@ -54,14 +55,15 @@ class HostRegistry(object):
     def host_load(self):
         output = []
         for host in self.get_hosts(type='read'):
-            assigned_bytes = sum(self.consul.kv["%s/" % host['hostname'] ])
-            total_bytes = self.consul.kv["%s" % host['hostname'] ]
-            output.push({
-                'hostname': host['hostname'],
+            assigned_bytes = sum(self.consul.kv.get("%s/" % host['Node'], [0]))
+            total_bytes = self.consul.kv.get("%s" % host['Node'])
+            total_bytes = 0 if total_bytes in ['null', None] else int(total_bytes)
+            output.append({
+                'Node': host['Node'],
                 'remaining_bytes': total_bytes - assigned_bytes,
                 'assigned_bytes': assigned_bytes,
                 'total_bytes': total_bytes,
-                'load_ratio': (total_bytes - assigned_bytes) / total_bytes
+                'load_ratio': (total_bytes - assigned_bytes) / (total_bytes if total_bytes > 0 else 1)
             })
         return output
     def host_bytes_remaining(self):
@@ -75,13 +77,15 @@ class HostRegistry(object):
         for host in hosts:
             # TODO: figure out a better way to describe the "acceptably empty" percentage.
             # Noah suggests (a multiplication factor) * (the largest segment / total dataset size), capped at 1.0 (100%)
-            if host['load_ratio'] < (average_load - 0.05):
-                host['average_load_ratio'] = average_ratio
-                output.push(host)
+            if host['load_ratio'] < (average_load_ratio - 0.05):
+                host['average_load_ratio'] = average_load_ratio
+                output.append(host)
         return output
     def host_is_advertised(self, host):
-        for host in self.get_hosts(type='read'):
-            if host['hostname'] == host:
+        logging.info('Checking if "%s" is advertised.' % host)
+        for advertised_host in self.get_hosts(type='read'):
+            if advertised_host['Node'] == host:
+                logging.info('Found that "%s" is advertised.' % host)
                 return True
         return False
     def advertise(self, name, service_id, address=settings['EXTERNAL_IP'], \
@@ -92,15 +96,22 @@ class HostRegistry(object):
     def create_health_check(self, name, pool, service_name, ttl, notes):
         return self.consul.agent.check.register(name, check_id="service:trough/%s/%s" % (pool, service_name), ttl=str(ttl)+"s", notes=notes)
     def reset_health_check(self, pool, service_name):
+        logging.warn('Updating health check for pool: "%s", service_name: "%s".' % (pool, service_name))
         return self.consul.agent.check.ttl_pass("service:trough/%s/%s" % (pool, service_name))
     def assign(self, host, segment):
-        self.consul.kv[segment.host_key(host)] = segment.size
+        logging.info("Assigning segment: %s to '%s'" % (segment.id, host['Node']))
+        logging.info('Setting key "%s" to "%s"' % (segment.host_key(host['Node']), segment.size))
+        self.consul.kv[segment.host_key(host['Node'])] = segment.size
     def unassign(self, host, segment):
-        del consul.kv[segment.host_key(host)]
+        logging.info("Unassigning segment: %s on '%s'" % (segment, host))
+        del self.consul.kv[segment.host_key(host)]
     def set_quota(self, host, quota):
+        logging.info('Setting quota for host "%s": %s bytes.' % (host, quota))
         self.consul.kv[host] = quota
     def segments_for_host(self, host):
-        return [Segment(consul=self.consul, segment_id=k.split('/')[-1], size=v) for k, v in self.consul.kv.find("%s/" % host)]
+        segments = [Segment(consul=self.consul, segment_id=k.split('/')[-1], size=v, registry=self) for k, v in self.consul.kv.find("%s/" % host).items()]
+        logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
+        return segments
 
 
 ##################################################
@@ -181,6 +192,7 @@ def run_sync_master():
 
     # we are assured that we are the master, and that we have machines to assign to.
     sb_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    logging.info('Connecting to HDFS for file listing on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
 
     file_listing = sb_client.ls([settings['HDFS_PATH']])
 
@@ -188,14 +200,14 @@ def run_sync_master():
     for file in file_listing:
         local_part = file['path'].split('/')[-1]
         local_part = local_part.replace('.sqlite', '')
-        segment = Segment(consul=consul, segment_id=local_part, size=file['length'])
-        if not segment.enough_copies():
+        segment = Segment(consul=consul, segment_id=local_part, size=file['length'], registry=registry)
+        if not len(segment.all_copies()) >= segment.minimum_assignments():
             emptiest_host = sorted(registry.host_load(), key=lambda host: host['remaining_bytes'], reverse=True)[0]
             # assign the byte count of the file to a key named, e.g. /hostA/segment
             registry.assign(emptiest_host, segment)
         else:
             # If we find too many 'up' copies
-            if segment.up_copies() > segment.minimum_assignments():
+            if len(segment.up_copies()) > segment.minimum_assignments():
                 # If so, delete the copy with the lowest 'CreateIndex', which records the
                 # order in which keys are created.
                 assignments = segment.all_copies(full_record=True)
@@ -205,15 +217,18 @@ def run_sync_master():
                 registry.unassign(host, segment)
         file_total += 1
 
+    logging.info('Rebalancing Hosts...')
     for host in registry.underloaded_hosts():
+        logging('Rebalancing %s (its load is %s, lower than %s, the average)' % (host, host['load_ratio'] * 100, host['average_load_ratio'] * 100))
         '''while the load on this host is lower than the acceptable load, reassign 
         segments in the file listing order returned from snakebite.'''
         ratio_to_reassign = host['average_load_ratio'] - host['load_ratio']
+        logging.info('Connecting to HDFS for file listing on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
         file_listing = sb_client.ls([settings['HDFS_PATH']])
         for file in file_listing:
             local_part = file['path'].split('/')[-1]
             local_part = local_part.replace('.sqlite', '')
-            segment = Segment(consul=consul, segment_id=local_part, size=file['length'])
+            segment = Segment(consul=consul, segment_id=local_part, size=file['length'], registry=registry)
             # if this segment is already assigned to this host, next segment.
             if segment.is_assigned_to_host(host):
                 continue
@@ -238,20 +253,34 @@ def check_local_config():
         sys.exit("{} Exiting...".format(str(e)))
 
 def check_segment_exists(segment):
-    if os.file.exists(os.join(settings['LOCAL_DATA'], "%s.sqlite" % segment)):
+    logging.info('Checking whether segment "%s" exists on local filesystem in %s' % (segment, settings['LOCAL_DATA']))
+    if os.path.isfile(os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % segment)):
+        logging.info('Segment "%s" exists' % segment)
         return True
+    logging.info('Segment "%s" does not exist' % segment)
     return False
 
 def check_segment_matches_hdfs(sb_client, segment):
-    for listing in sb_client.ls(settings['HDFS_PATH']):
-        if file['length'] == os.path.getsize(os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % segment)):
-            return True
+    logging.info('Checking that segment %s matches its byte count in HDFS.' % segment)
+    segment_filename = os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % segment)
+    if os.path.isfile(segment_filename):
+        for listing in sb_client.ls([settings['HDFS_PATH']]):
+            if listing['length'] == os.path.getsize(segment_filename):
+                logging.info('Byte counts match.')
+                return True
+    logging.warn('Byte counts do not match HDFS for segment %s' % segment)
     return False
 
-def copy_segment_from_hdfs(segment):
+def copy_segment_from_hdfs(sb_client, segment):
+    logging.info('copying segment %s from HDFS...' % segment)
     source = [os.path.join(settings['HDFS_PATH'], "%s.sqlite" % segment)]
     destination = settings['LOCAL_DATA']
-    return sb_client.copyToLocal(source, destination)
+    logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
+    for f in sb_client.copyToLocal(source, destination):
+        if f['error']:
+            logging.error('Error: %s' % f['error'])
+        else:
+            logging.info('copied %s' % f)
 
 def run_sync_local():
     '''
@@ -285,6 +314,7 @@ def run_sync_local():
     if registry.health_check('nodes', my_hostname):
         # reset the countdown
         registry.reset_health_check('nodes', my_hostname)
+    logging.warn('Updating health check for "%s".' % my_hostname)
     registry.set_quota(my_hostname, settings['STORAGE_IN_BYTES'])
     loop_timer = time.time()
     sb_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
@@ -292,9 +322,9 @@ def run_sync_local():
         segment_name = segment.id
         exists = check_segment_exists(segment_name)
         matches_hdfs = check_segment_matches_hdfs(sb_client, segment_name)
-        if not exists or not matches_md5:
+        if not exists or not matches_hdfs:
             copy_segment_from_hdfs(sb_client, segment_name)
-            registry.advertise('trough-read-segments' % segment_name, service_id='trough/read/%s' % segment_name, tags=[segment_name])
+            registry.advertise('trough-read-segments', service_id='trough/read/%s' % segment_name, tags=[segment_name])
             # to calculate the segment TTL, use (settings['SYNC_LOOP_TIMING'] + total loop time, so far) * 2
             segment_health_ttl = round(settings['SYNC_LOOP_TIMING'] + (loop_timer - time.time()) * 2)
             registry.create_health_check(name='Segment %s Is Healthy' % segment_name,
