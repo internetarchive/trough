@@ -25,9 +25,9 @@ def stream_output(cursor, query, start_response):
     cursor.close()
     cursor.connection.close()
 
-def read(env, start_response):
+def application(env, start_response):
     try:
-        database = os.path.split(env.get('PATH_INFO'))[-1] # get database id from host/request path
+        database = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
         database = os.path.join(settings['LOCAL_DATA'], "{name}.sqlite".format(name=database))
         connection = sqlite3.connect(database)
         cur = connection.cursor()
