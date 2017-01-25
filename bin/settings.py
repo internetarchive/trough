@@ -35,7 +35,6 @@ settings = {
     'HDFS_PATH': None, # /ait/prod/trough/
     'HDFS_HOST': None,
     'HDFS_PORT': None,
-    'SYNC_PORT': 6006,
     'READ_PORT': 6004,
     'WRITE_PORT': 6002,
     'EXTERNAL_IP': get_ip(),
@@ -45,6 +44,8 @@ settings = {
     'READ_NODE_DNS_TTL': 60 * 10, # 10 minute default
     'READ_DATABASE_DNS_TTL': 60 * 10, # 10 minute default
     'SYNC_LOOP_TIMING': 60 * 2, # do a 'sync' loop every N seconds (default: 2m. applies to both local and master sync nodes)
+    'CONSUL_ADDRESS': '127.0.0.1', # default to 'localhost' for consul connection.
+    'CONSUL_PORT': 8500, # default to port 8500 (default) for consul
 }
 
 try:
