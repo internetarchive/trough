@@ -9,6 +9,7 @@ import os
 import time
 import random
 import sys
+import string
 
 class Segment(object):
     def __init__(self, consul, segment_id, size, registry):
@@ -32,7 +33,7 @@ class Segment(object):
         return assignments
     def up_copies(self):
         '''returns the 'up' SegmentCopies'''
-        return self.consul.catalog.service("trough/read/%s" % segment_name)
+        return self.consul.catalog.service("trough/read/%s" % self.id)
     def host_key(self, host):
         return "%s/%s" % (host, self.id)
     def is_assigned_to_host(self, host):
@@ -90,6 +91,7 @@ class HostRegistry(object):
         return False
     def advertise(self, name, service_id, address=settings['EXTERNAL_IP'], \
             port=settings['READ_PORT'], tags=[], ttl=str(settings['READ_NODE_DNS_TTL']) + 's'):
+        logging.info('Advertising: name[%s] service_id[%s] at /v1/catalog/service/%s on IP %s:%s with TTL %ss' % (name, service_id, service_id, address, port, ttl))
         self.consul.agent.service.register(name, service_id=service_id, address=address, port=port, tags=tags, ttl=ttl)
     def health_check(self, pool, service_name):
         return self.consul.health.node("trough/%s/%s" % (pool, service_name))
@@ -113,6 +115,15 @@ class HostRegistry(object):
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
 
+def check_consul_health(consul):
+    try:
+        random.seed(settings['HOSTNAME'])
+        random_key = ''.join(random.choice(string.ascii_uppercase + string.digits) for i in range(10))
+        logging.error("Inserting random key '%s' into consul's key/value store as a health check." % (random_key,))
+        consul.kv[random_key] = True
+        del consul.kv[random_key]
+    except Exception as e:
+        sys.exit('Unable to connect to consul. Exiting to prevent running in a bad state.')
 
 ##################################################
 # SERVER/MASTER MODE
@@ -127,6 +138,8 @@ def check_master_config():
         assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
         assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
         assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
+        assert settings['CONSUL_ADDRESS'], "CONSUL_ADDRESS must be set. Where can I contact consul's RPC interface?"
+        assert settings['CONSUL_PORT'], "CONSUL_PORT must be set. Where can I contact consul's RPC interface?"
     except AssertionError as e:
         sys.exit("{} Exiting...".format(str(e)))
 
@@ -177,7 +190,8 @@ def run_sync_master():
     '''
     leader = False
     found_hosts = False
-    consul = consulate.Consul()
+    consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
+    check_consul_health(consul)
     registry = HostRegistry(consul=consul)
 
     # hold an election every settings['ELECTION_CYCLE'] seconds
@@ -208,7 +222,7 @@ def run_sync_master():
         else:
             # If we find too many 'up' copies
             if len(segment.up_copies()) > segment.minimum_assignments():
-                # If so, delete the copy with the lowest 'CreateIndex', which records the
+                # delete the copy with the lowest 'CreateIndex', which records the
                 # order in which keys are created.
                 assignments = segment.all_copies(full_record=True)
                 assignments = sorted(assignments, key=lambda record: record['CreateIndex'])
@@ -219,9 +233,9 @@ def run_sync_master():
 
     logging.info('Rebalancing Hosts...')
     for host in registry.underloaded_hosts():
+        # while the load on this host is lower than the acceptable load, reassign 
+        # segments in the file listing order returned from snakebite.
         logging('Rebalancing %s (its load is %s, lower than %s, the average)' % (host, host['load_ratio'] * 100, host['average_load_ratio'] * 100))
-        '''while the load on this host is lower than the acceptable load, reassign 
-        segments in the file listing order returned from snakebite.'''
         ratio_to_reassign = host['average_load_ratio'] - host['load_ratio']
         logging.info('Connecting to HDFS for file listing on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
         file_listing = sb_client.ls([settings['HDFS_PATH']])
@@ -249,6 +263,8 @@ def check_local_config():
         assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
         assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
         assert settings['READ_PORT'], "SYNC_PORT must be set. We need to know the output port."
+        assert settings['CONSUL_ADDRESS'], "CONSUL_ADDRESS must be set. Where can I contact consul's RPC interface?"
+        assert settings['CONSUL_PORT'], "CONSUL_PORT must be set. Where can I contact consul's RPC interface?"
     except AssertionError as e:
         sys.exit("{} Exiting...".format(str(e)))
 
@@ -301,10 +317,11 @@ def run_sync_local():
     - end 'timer'
     - set up a health check (TTL) for myself, 2 * 'timer'
     '''
-    consul = consulate.Consul()
-    registry = HostRegistry(consul)
-
     my_hostname = settings['HOSTNAME']
+
+    consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
+    check_consul_health(consul)
+    registry = HostRegistry(consul)
 
     if not registry.host_is_advertised(my_hostname):
         logging.warn('I am not advertised. Advertising myself as "%s".' % my_hostname)
@@ -324,7 +341,6 @@ def run_sync_local():
         matches_hdfs = check_segment_matches_hdfs(sb_client, segment_name)
         if not exists or not matches_hdfs:
             copy_segment_from_hdfs(sb_client, segment_name)
-            registry.advertise('trough-read-segments', service_id='trough/read/%s' % segment_name, tags=[segment_name])
             # to calculate the segment TTL, use (settings['SYNC_LOOP_TIMING'] + total loop time, so far) * 2
             segment_health_ttl = round(settings['SYNC_LOOP_TIMING'] + (loop_timer - time.time()) * 2)
             registry.create_health_check(name='Segment %s Is Healthy' % segment_name,
@@ -332,6 +348,7 @@ def run_sync_local():
                             service_name=segment_name,
                             ttl=segment_health_ttl,
                             notes="Segment Health Checks occur every %ss. They are unhealthy after missing (appx) 2 sync loops." % settings['SYNC_LOOP_TIMING'])
+        registry.advertise('trough-read-segments', service_id='trough/read/%s' % segment_name, tags=[segment_name])
         registry.reset_health_check('read', segment_name)
     if not registry.health_check('nodes', my_hostname):
         # to calculate the node TTL, use (settings['SYNC_LOOP_TIMING'] + total loop time) * 2
@@ -377,7 +394,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.server:
         check_master_config()
-        run_sync_master()
+        while True:
+            run_sync_master()
     else:
         check_local_config()
         while True:
