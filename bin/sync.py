@@ -115,6 +115,7 @@ class HostRegistry(object):
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
 
+# Base class, not intended for use.
 class SyncController:
     def __init__(self, consul=None, registry=None, snakebite_client=None):
         self.consul = consul
@@ -134,9 +135,7 @@ class SyncController:
         except Exception as e:
             sys.exit('Unable to connect to consul. Exiting to prevent running in a bad state.')
 
-##################################################
-# SERVER/MASTER MODE
-##################################################
+# Master or "Server" mode synchronizer.
 
 class SyncMasterController(SyncController):
     def check_config(self):
@@ -273,10 +272,7 @@ class SyncMasterController(SyncController):
         # rebalance the hosts in case any new servers join the cluster
         self.rebalance_hosts()
 
-
-##################################################
-# LOCAL MODE
-##################################################
+# Local mode synchronizer.
 
 class LocalSyncController(SyncController):
     def check_config(self):
@@ -395,30 +391,6 @@ class LocalSyncController(SyncController):
         self.sync_segments()
         # ensure that I have a health check in consul.
         self.ensure_health_check(sync_start)
-
-
-
-# health check:
-# - segment health will be a TTL check, which means the segments are assumed to be 'unhealthy'
-#   after some period of time.
-# - query consul to see which segments are assigned to this host http://localhost:8500/v1/kv/{{ host }}/?keys
-# - for each segment:
-#     - check the CRC/MD5 of the file against HDFS
-#     - make a query to the file, on localhost HTTP by forcing a Host header. Maybe check that a specific
-#       set of tables exists with SELECT name FROM sqlite_master WHERE type='table' AND name='{{ table_name }}';
-# - ship a manifest upstream, or possibly for each item 
-# for the node health check, receiving any healthy segment message on the host will suffice.
-# (aka the health check for DBs should also reset TTL for the host)
-    
-# health, assignments, and first "up" event:
-# - assignments happen via pushing a key/value into the consul store ('/host/segment_id': 'segment_size') 
-#   retrieve assignment list via: http://localhost:8500/v1/kv/host1/?keys
-# - upon assignment, local synchronizer wakes up, copies file from hdfs.
-# - upon copy completion, local synchronizer runs first health check.
-# - upon first health check completion, synchronizer sets up DNS for segments on this host.
-#   segment is now 'up'
-# - upon first health check completion, synchronizer sets up TTL-based future health checks
-#   for each segment assigned to this host.
 
 if __name__ == '__main__':
     import argparse
