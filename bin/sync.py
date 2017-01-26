@@ -398,7 +398,7 @@ if __name__ == '__main__':
         'or a "local" sync process, which loads segments onto the current machine and performs health checks.')
 
     parser.add_argument('--server', dest='server', action='store_true',
-                        help='run in server or "master" mode, control the actions of other local synchronizers.')
+                        help='run in server or "master" mode: control the actions of other local synchronizers.')
     args = parser.parse_args()
 
     logging.info('Connecting to Consul for on: %s:%s' % (settings['CONSUL_ADDRESS'], settings['CONSUL_PORT']))
