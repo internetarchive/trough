@@ -9,10 +9,8 @@ import logging
 # TODO: Refactor to class 'ReadServer'
 
 class ReadServer:
-    def __init__(segment_name):
-        self.segment_name = segment_name
-        self.segment_path = os.path.join(settings['LOCAL_DATA'], "{name}.sqlite".format(name=database))
-        self.connection = sqlite3.connect(database)
+    def __init__(segment_path):
+        self.connection = sqlite3.connect(segment_path)
         self.cursor = self.connection.cursor()
 
     def stream_output(self, start_response):
@@ -34,7 +32,7 @@ class ReadServer:
         self.cursor.close()
         self.cursor.connection.close()
 
-    def read(query, start_response)
+    def read(query, start_response):
         logging.info('Servicing request: {query}'.format(query=query))
         # if the user sent more than one query, or the query is not a SELECT, raise an exception.
         if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
@@ -44,7 +42,9 @@ class ReadServer:
 def application(env):
     try:
         segment_name = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
-        return ReadServer(segment_name, start_response).read(env.get('wsgi.input').read(), start_response)
+        segment_path = os.path.join(settings['LOCAL_DATA'], "{name}.sqlite".format(name=segment_name))
+        query = env.get('wsgi.input').read()
+        return ReadServer(segment_path).read(query, start_response)
     except Exception as e:
         start_response('500 Server Error', [('Content-Type', 'text/plain')])
         return [b'500 Server Error: %s' % str(e).encode('utf-8')]
