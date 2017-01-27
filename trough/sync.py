@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import consulate
-from settings import settings
+from trough.settings import settings
 from snakebite.client import Client
 import socket
 import json
@@ -17,8 +17,10 @@ class Segment(object):
         self.id = segment_id
         self.size = size
         self.registry = registry
+    def host_key(self, host):
+        return "%s/%s" % (host, self.id)
     def all_copies(self, full_record=False):
-        ''' returns the 'assigned' SegmentCopies, whether or not they are 'up' '''
+        ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
         assignments = []
         for host in self.registry.get_hosts(type='read'):
             # then for each host, we'll check the k/v store
@@ -27,21 +29,20 @@ class Segment(object):
                 record = self.consul.kv.get_record(self.host_key(host['Node']))
             elif self.consul.kv.get(self.host_key(host['Node'])):
                 record = self.host_key(host['Node'])
-                assignments.append(self.host_key(host['Node']))
             if record:
                 assignments.append(record)
         return assignments
     def up_copies(self):
         '''returns the 'up' SegmentCopies'''
         return self.consul.catalog.service("trough/read/%s" % self.id)
-    def host_key(self, host):
-        return "%s/%s" % (host, self.id)
     def is_assigned_to_host(self, host):
         return bool(self.consul.kv.get(self.host_key(host)))
     def minimum_assignments(self):
         '''This function should return the minimum number of assignments which is acceptable for a given segment.'''
-        return 2
-        raise Exception('Not Implemented')
+        if hasattr(settings['MINIMUM_ASSIGNMENTS'], "__call__"):
+            return settings['MINIMUM_ASSIGNMENTS'](self.id)
+        else:
+            return settings['MINIMUM_ASSIGNMENTS']
 
 class HostRegistry(object):
     ''' this should probably implement all of the 'host' oriented functions below. '''
@@ -202,7 +203,7 @@ class SyncMasterController(SyncController):
         for file in file_listing:
             local_part = file['path'].split('/')[-1]
             local_part = local_part.replace('.sqlite', '')
-            segment = Segment(consul=consul, segment_id=local_part, size=file['length'], self.registry=self.registry)
+            segment = Segment(consul=consul, segment_id=local_part, size=file['length'], registry=self.registry)
             if not len(segment.all_copies()) >= segment.minimum_assignments():
                 emptiest_host = sorted(self.registry.host_load(), key=lambda host: host['remaining_bytes'], reverse=True)[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
@@ -230,7 +231,7 @@ class SyncMasterController(SyncController):
             for file in file_listing:
                 local_part = file['path'].split('/')[-1]
                 local_part = local_part.replace('.sqlite', '')
-                segment = Segment(consul=consul, segment_id=local_part, size=file['length'], self.registry=self.registry)
+                segment = Segment(consul=consul, segment_id=local_part, size=file['length'], registry=self.registry)
                 # if this segment is already assigned to this host, next segment.
                 if segment.is_assigned_to_host(host):
                     continue
