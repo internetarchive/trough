@@ -5,8 +5,8 @@ import os
 import socket
 
 class Settings(dict):
-    def __init__(self, path=None):
-        self.path = path
+    def __init__(self, settings_path=None):
+        self.settings_path = settings_path
         self._settings = {
             'LOCAL_DATA': '/var/tmp/trough',
             'READ_THREADS': '10',
@@ -18,6 +18,7 @@ class Settings(dict):
             'HDFS_PORT': None,
             'READ_PORT': 6004,
             'WRITE_PORT': 6002,
+            'SYNC_PORT': 6001,
             'EXTERNAL_IP': self.get_ip(),
             'HOST_CHECK_WAIT_PERIOD': 5, # if the sync master starts before anything else, poll for hosts to assign to every N seconds.
             'STORAGE_IN_BYTES': None, # this will be set later, if it is not set in settings.yml
@@ -28,34 +29,35 @@ class Settings(dict):
             'CONSUL_ADDRESS': '127.0.0.1', # default to 'localhost' for consul connection.
             'CONSUL_PORT': 8500, # default to port 8500 (default) for consul
             'MINIMUM_ASSIGNMENTS': 2,
-            'LOG_LEVEL': 'INFO'
+            'LOG_LEVEL': 'INFO',
+            'SEGMENT_INITIALIZATION_SQL': os.path.join(os.path.dirname(__file__), os.path.pardir(), "conf", "intialize.sql")
         }
         logging.basicConfig(
-            stream=sys.stderr, level=logging.WARN, # snakebite raises exceptions on DEBUG
+            stream=sys.stderr, level=logging.ERROR, # snakebite raises exceptions on DEBUG
             format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
                    '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
         try:
-            with open(self.path if self.path or '/etc/trough/settings.yml') as f:
+            with open(self.settings_path if self.settings_path else '/etc/trough/settings.yml') as f:
                 yaml_settings = yaml.load(f)
                 for key in yaml_settings.keys():
                     self._settings[key] = yaml_settings[key]
         except (IOError, AttributeError) as e:
-            logging.warn('%s -- using default self._settings', e)
+            logging.warning('%s -- using default self._settings', e)
 
         # if the user provided a lambda, we have to eval() it, :gulp:
         if "lambda" in str(self._settings['MINIMUM_ASSIGNMENTS']):
             self._settings['MINIMUM_ASSIGNMENTS'] = eval(self._settings['MINIMUM_ASSIGNMENTS'])
 
         if not os.path.isdir(self._settings['LOCAL_DATA']):
-            logging.warn("LOCAL_DATA path %s does not exist. Attempting to make dirs." % self._settings['LOCAL_DATA'])
+            logging.warning("LOCAL_DATA path %s does not exist. Attempting to make dirs." % self._settings['LOCAL_DATA'])
             os.makedirs(self._settings['LOCAL_DATA'])
 
         if self._settings['STORAGE_IN_BYTES'] is None:
             storage_in_bytes = self.get_storage_in_bytes()
-            logging.warn("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s bytes" % (self._settings['LOCAL_DATA'], storage_in_bytes))
+            logging.warning("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s bytes" % (self._settings['LOCAL_DATA'], storage_in_bytes))
             self._settings['STORAGE_IN_BYTES'] = storage_in_bytes
 
-        log_level = self._settings.get('LOG_LEVEL', 'INFO')
+        log_level = self._settings.get('LOG_LEVEL', 'ERROR')
         logging.basicConfig(
             stream=sys.stderr, level=getattr(logging, log_level), # snakebite raises exceptions on DEBUG
             format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
@@ -84,4 +86,3 @@ class Settings(dict):
     def get(self, key, default=None):
         return self._settings.get(key, default)
 
-settings = Settings()
