@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import consulate
-from trough.settings import settings
+from trough.settings import Settings
 from snakebite.client import Client
 import socket
 import json
@@ -10,6 +10,9 @@ import time
 import random
 import sys
 import string
+import requests
+
+settings = Settings()
 
 class Segment(object):
     def __init__(self, consul, segment_id, size, registry):
@@ -32,9 +35,12 @@ class Segment(object):
             if record:
                 assignments.append(record)
         return assignments
-    def up_copies(self):
-        '''returns the 'up' SegmentCopies'''
+    def readable_copies(self):
+        '''returns the 'up' copies of this segment to read from, per consul.'''
         return self.consul.catalog.service("trough/read/%s" % self.id)
+    def writable_copies(self):
+        '''returns the 'up' copies of this segment to write to, per consul.'''
+        return self.consul.catalog.service("trough/write/%s" % self.id)
     def is_assigned_to_host(self, host):
         return bool(self.consul.kv.get(self.host_key(host)))
     def minimum_assignments(self):
@@ -43,13 +49,39 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS'](self.id)
         else:
             return settings['MINIMUM_ASSIGNMENTS']
+    def acquire_write_lock(self, host):
+        '''Raises exception if required parameter "host" is not provided. Raises exception if lock exists.'''
+        lock_key = 'write/locks/%s' % self.id
+        if self.consul.kv.get(lock_key):
+            raise Exception('Segment is already locked.')
+        lock_data = {'Node': self.host, 'Datestamp': datetime.datetime.now().isoformat() }
+        self.consul.kv[lock_key] = json.dumps(lock_data)
+        return lock_data
+    def retrieve_write_lock(self):
+        '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
+        return json.loads(self.consul.kv.get('write/locks/%s' % self.id, "null"))
+    def release_write_lock(self):
+        '''Delete a lock. Raises exception in the case that the lock does not exist.'''
+        del self.consul.kv['write/locks/%s' % self.id]
+    def segment_path(self):
+        return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
+    def local_segment_exists(self):
+        return os.path.isfile(self.segment_path())
+    def provision_local_segment(self):
+        connection = sqlite3.connect(self.segment_path())
+        cursor = connection.cursor()
+        with open(settings['SEGMENT_INITIALIZATION_SQL'], 'r') as script:
+            cursor.execute(script.read())
+
+
+
 
 class HostRegistry(object):
     ''' this should probably implement all of the 'host' oriented functions below. '''
     def __init__(self, consul):
         self.consul = consul
-    def get_hosts(self, type='read'):
-        return self.consul.catalog.service('trough-%s-nodes' % type)
+    def get_hosts(self):
+        return self.consul.catalog.service('trough-nodes' % type)
     def look_for_hosts(self):
         output = bool(self.get_hosts(type='read') + self.get_hosts(type='write'))
         logging.debug("Looking for hosts. Found: %s" % output)
@@ -83,17 +115,20 @@ class HostRegistry(object):
                 host['average_load_ratio'] = average_load_ratio
                 output.append(host)
         return output
-    def host_is_advertised(self, host):
-        logging.info('Checking if "%s" is advertised.' % host)
-        for advertised_host in self.get_hosts(type='read'):
-            if advertised_host['Node'] == host:
-                logging.info('Found that "%s" is advertised.' % host)
+    def host_is_registered(self, host):
+        logging.info('Checking if "%s" is registered.' % host)
+        for registered_host in self.get_hosts(type='read'):
+            if registered_host['Node'] == host:
+                logging.info('Found that "%s" is registered.' % host)
                 return True
         return False
-    def advertise(self, name, service_id, address=settings['EXTERNAL_IP'], \
+    def register(self, name, service_id, address=settings['EXTERNAL_IP'], \
             port=settings['READ_PORT'], tags=[], ttl=str(settings['READ_NODE_DNS_TTL']) + 's'):
-        logging.info('Advertising: name[%s] service_id[%s] at /v1/catalog/service/%s on IP %s:%s with TTL %ss' % (name, service_id, service_id, address, port, ttl))
+        logging.info('Registering: name[%s] service_id[%s] at /v1/catalog/service/%s on IP %s:%s with TTL %ss' % (name, service_id, service_id, address, port, ttl))
         self.consul.agent.service.register(name, service_id=service_id, address=address, port=port, tags=tags, ttl=ttl)
+    def deregister(self, name, service_id):
+        logging.info('Deregistering: name[%s] service_id[%s] at /v1/catalog/service/%s' % (name, service_id, service_id))
+        self.consul.agent.service.deregister(service_id=service_id)
     def health_check(self, pool, service_name):
         return self.consul.health.node("trough/%s/%s" % (pool, service_name))
     def create_health_check(self, name, pool, service_name, ttl, notes):
@@ -167,7 +202,7 @@ class SyncMasterController(SyncController):
         else:
             logging.warn('There is no "trough-sync-master" service in consul. I am the master.')
             logging.warn('Setting up master service...')
-            self.registry.advertise('trough-sync-master',
+            self.registry.register('trough-sync-master',
                 service_id='trough/sync/master',
                 port=settings['SYNC_PORT'],
                 tags=['master'],
@@ -210,7 +245,7 @@ class SyncMasterController(SyncController):
                 self.registry.assign(emptiest_host, segment)
             else:
                 # If we find too many 'up' copies
-                if len(segment.up_copies()) > segment.minimum_assignments():
+                if len(segment.readable_copies()) > segment.minimum_assignments():
                     # delete the copy with the lowest 'CreateIndex', which records the
                     # order in which keys are created.
                     assignments = segment.all_copies(full_record=True)
@@ -218,13 +253,17 @@ class SyncMasterController(SyncController):
                     host = assignments[0].split("/")[0]
                     # remove the assignment
                     self.registry.unassign(host, segment)
+            writable_copies = segment.writable_copies()
+            if writable_copies:
+                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the read-only copy from HDFS." % segment.id)
+                self.decommission_writable_segment(segment)
 
     def rebalance_hosts(self):
         logging.info('Rebalancing Hosts...')
         for host in self.registry.underloaded_hosts():
             # while the load on this host is lower than the acceptable load, reassign 
             # segments in the file listing order returned from snakebite.
-            logging('Rebalancing %s (its load is %s, lower than %s, the average)' % (host, host['load_ratio'] * 100, host['average_load_ratio'] * 100))
+            logging.info('Rebalancing %s (its load is %s, lower than %s, the average)' % (host, host['load_ratio'] * 100, host['average_load_ratio'] * 100))
             ratio_to_reassign = host['average_load_ratio'] - host['load_ratio']
             logging.info('Connecting to HDFS for file listing on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
             file_listing = self.snakebite_client.ls([settings['HDFS_PATH']])
@@ -273,6 +312,58 @@ class SyncMasterController(SyncController):
         # rebalance the hosts in case any new servers join the cluster
         self.rebalance_hosts()
 
+    def wait_for_write_lock(self, segment_id):
+        while not lock:
+            try:
+                lock = self.consul.lock.acquire("master/%s" % segment_id)
+            except consulate.exceptions.LockException as e:
+                pass
+        return lock
+
+    def provision_writable_segment(self, segment_id):
+        # to protect against querying the non-leader
+        # get the hostname of the leader
+        # if not my hostname, raise exception
+        # acquire a lock for the process of provisioning
+        # with lock:
+        with self.wait_for_write_lock():
+            segment = Segment(segment_id=segment_id, consul=self.consul, registry=self.registry)
+            writable_copies = segment.writable_copies()
+            readable_copies = segment.readable_copies()
+            # if the requested segment has no writable copies:
+            if len(writable_copies) == 0:
+                all_hosts = registry.get_hosts()
+                assigned_host = random.choice(readable_copies) if readable_copies else random_choice(all_hosts)
+                # make request to node to complete the local sync
+                post_url = 'http://%s:%s/' % (assigned_host, settings['SYNC_PORT'])
+                requests.post(post_url, segment_id)
+                # create a new consul service
+                self.registry.register("trough-write-segments", service_id='trough/write/%s' % segment_id, tags=[segment_id])
+            else:
+                assigned_host = writable_copies[0]
+            # proxying will happen transparently based on the K/V lock below
+            # for each readable copy:
+            #for copy in readable_copies:
+                # set up a proxy to the wriable copy (so stale DNS doesn't create problems)
+                #if copy['Node'] != assigned_host['Node']:
+                #    post_url = "http://%s:%s/proxy/" % copy['Node'], settings['SYNC_PORT']
+                #    requests.post(post_url, "%s:%s" % segment_id, assigned_host)
+        # return an http endpoint for POSTs
+        return "http://%s.trough-write-segments.service.consul/" % (segment_id, )
+        # implicitly release provisioning lock
+
+    def decommission_writable_segment(self, segment):
+        logging.info('De-commissioning a writable segment: %s' % segment.id)
+        self.registry.deregister(name="trough-write-segments", service_id='trough/write/%s' % segment.id)
+        # COMMENTED THE BELOW.  now happens transparently via consulting the k/v for lock.
+        # remove proxies
+        # readable_copies = segment.readable_copies()
+        #for copy in readable_copies():
+
+        # release write lock
+
+
+
 # Local mode synchronizer.
 
 class LocalSyncController(SyncController):
@@ -316,10 +407,10 @@ class LocalSyncController(SyncController):
             else:
                 logging.info('copied %s' % f)
 
-    def ensure_advertised(self):
-        if not self.registry.host_is_advertised(self.hostname):
-            logging.warn('I am not advertised. Advertising myself as "%s".' % self.hostname)
-            self.registry.advertise('trough-read-nodes', service_id='trough/nodes/%s' % self.hostname, tags=[self.hostname])
+    def ensure_registered(self):
+        if not self.registry.host_is_registered(self.hostname):
+            logging.warn('I am not registered. Registering myself as "%s".' % self.hostname)
+            self.registry.register('trough-nodes', service_id='trough/nodes/%s' % self.hostname, tags=[self.hostname])
 
     def ensure_health_check(self, sync_start):
         if not self.registry.health_check('nodes', self.hostname):
@@ -352,7 +443,7 @@ class LocalSyncController(SyncController):
                                 service_name=segment_name,
                                 ttl=segment_health_ttl,
                                 notes="Segment Health Checks occur every %ss. They are unhealthy after missing (appx) 2 sync loops." % settings['SYNC_LOOP_TIMING'])
-            self.registry.advertise('trough-read-segments', service_id='trough/read/%s' % segment_name, tags=[segment_name])
+            self.registry.register('trough-read-segments', service_id='trough/read/%s' % segment_name, tags=[segment_name])
             self.registry.reset_health_check('read', segment_name)
 
 
@@ -380,8 +471,8 @@ class LocalSyncController(SyncController):
 
         # make sure consul is up and running.
         self.check_consul_health()
-        # ensure that I am advertised in consul.
-        self.ensure_advertised()
+        # ensure that I am registered in consul.
+        self.ensure_registered()
         # reset the TTL health check for this node. I am still alive!
         self.reset_health_check()
         # set my quota
@@ -393,22 +484,27 @@ class LocalSyncController(SyncController):
         # ensure that I have a health check in consul.
         self.ensure_health_check(sync_start)
 
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(description='Run a "server" sync process, which controls other sync processes, ' \
-        'or a "local" sync process, which loads segments onto the current machine and performs health checks.')
+    def provision_writable_segment(self, segment_id):
+        # instantiate the segment
+        segment = Segment(segment_id=segment_id, consul=self.consul, registry=self.registry)
+        # get the current write lock if any
+        lock_data = segment.retrieve_write_lock()
+        if not lock_data:
+            lock_data = segment.acquire_write_lock(settings['HOSTNAME'])
+        # check that the file exists on the filesystem
+        if not segment.local_segment_exists():
+            # execute the provisioning sql file against the sqlite segment
+            segment.provision_local_segment()
 
-    parser.add_argument('--server', dest='server', action='store_true',
-                        help='run in server or "master" mode: control the actions of other local synchronizers.')
-    args = parser.parse_args()
 
+def get_controller(server_mode)
     logging.info('Connecting to Consul for on: %s:%s' % (settings['CONSUL_ADDRESS'], settings['CONSUL_PORT']))
     consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
     registry = HostRegistry(consul=consul)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
     snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
 
-    if args.server:
+    if server_mode:
         controller = MasterSyncController(
             registry=registry,
             consul=consul,
@@ -419,8 +515,35 @@ if __name__ == '__main__':
             consul=consul,
             snakebite_client=snakebite_client)
 
-    controller.check_config()
+    return controller
 
+# freestanding script entrypoint
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Run a "server" sync process, which controls other sync processes, ' \
+        'or a "local" sync process, which loads segments onto the current machine and performs health checks.')
+
+    parser.add_argument('--server', dest='server', action='store_true',
+                        help='run in server or "master" mode: control the actions of other local synchronizers.')
+    args = parser.parse_args()
+
+    controller = get_controller(args.server)
+    controller.check_config()
     while True:
         controller.sync()
         time.sleep(settings['SYNC_LOOP_TIMING'])
+
+
+# wsgi entrypoint
+def application(env, start_response):
+    # need a way to differentiate server mode from local mode. Store in `env`?
+    try:
+        controller = get_controller(env.get('master_mode', False))
+        controller.check_config()
+        segment_name = env.get('wsgi.input').read()
+        output = controller.provision_writable_segment(segment_name)
+        start_response()
+        return output
+    except Exception as e:
+        start_response('500 Server Error', [('Content-Type', 'text/plain')])
+        return [b'500 Server Error: %s' % str(e).encode('utf-8')]
