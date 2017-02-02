@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
-from trough.settings import settings
+import trough
 import sqlite3
 import ujson
 import os
 import sqlparse
 import logging
+import consulate
+import requests
+from contextlib import closing
+
+settings = trough.settings.Settings()
+
+# TODO: add a consul check to ensure that there is no write lock on this segment.
 
 class ReadServer:
-    def __init__(self, start_response):
-        self.start_response = start_response
+    def proxy_for_write_host(self, segment, query):
+        # enforce that we are querying the correct database, send an explicit hostname.
+        write_url = "http://{segment}.trough-write-segments.service.consul:{port}/".format(segment=segment.id, port=settings['READ_PORT'])
+        # this "closing" syntax is recommended here: http://docs.python-requests.org/en/master/user/advanced/
+        with closing(requests.post(write_url, stream=True, data=query)) as r:
+            # todo: get the response code and the content type header from the response.
+            status_line = '{status_code} {reason}'.format(status_code=r.status_code, reason=r.reason)
+            # headers [('Content-Type','application/json')]
+            headers = [("Content-Type", r.headers['Content-Type'],)]
+            self.start_response(status_line, headers)
+            return r.iter_content()
 
-    def read(self, segment_path, query):
+    def read(self, segment, query):
         logging.info('Servicing request: {query}'.format(query=query))
         # if the user sent more than one query, or the query is not a SELECT, raise an exception.
         if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
             raise Exception('Exactly one SELECT query per request, please.')
-        connection = sqlite3.connect(segment_path)
+        connection = sqlite3.connect(segment.segment_path())
         cursor = connection.cursor()
         first = True
         try:
@@ -33,13 +49,23 @@ class ReadServer:
             cursor.close()
             cursor.connection.close()
 
-# uwsgi endpoint
-def application(env, start_response):
-    try:
-        segment_name = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
-        segment_path = os.path.join(settings['LOCAL_DATA'], "{name}.sqlite".format(name=segment_name))
-        query = env.get('wsgi.input').read()
-        return ReadServer(start_response).read(segment_path, query)
-    except Exception as e:
-        start_response('500 Server Error', [('Content-Type', 'text/plain')])
-        return [b'500 Server Error: %s' % str(e).encode('utf-8')]
+    # uwsgi endpoint
+    def __call__(self, env, start_response):
+        self.start_response = start_response
+        try:
+            segment_id = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
+            consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
+            registry = HostRegistry(consul=consul)
+            segment = trough.sync.Segment(segment_id=segment_id)
+            query = env.get('wsgi.input').read()
+            write_lock = segment.retrieve_write_lock()
+            if write_lock and write_lock['Node'] != settings['HOSTNAME']:
+                logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['Node']))
+                return self.proxy_for_write_host(segment, query)
+            return self.read(segment, query)
+        except Exception as e:
+            start_response('500 Server Error', [('Content-Type', 'text/plain')])
+            return [b'500 Server Error: %s' % str(e).encode('utf-8')]
+
+# setup uwsgi endpoint
+application = ReadServer()
