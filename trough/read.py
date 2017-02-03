@@ -52,7 +52,7 @@ class ReadServer:
         try:
             segment_id = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
             consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
-            registry = HostRegistry(consul=consul)
+            registry = trough.sync.HostRegistry(consul=consul)
             segment = trough.sync.Segment(segment_id=segment_id)
             query = env.get('wsgi.input').read()
             write_lock = segment.retrieve_write_lock()
