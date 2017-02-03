@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import consulate
-from trough.settings import Settings
+from trough.settings import settings
 from snakebite.client import Client
 import socket
 import json
@@ -12,7 +12,6 @@ import sys
 import string
 import requests
 
-settings = Settings()
 
 class Segment(object):
     def __init__(self, consul, segment_id, size, registry):
@@ -497,7 +496,7 @@ class LocalSyncController(SyncController):
             segment.provision_local_segment()
 
 
-def get_controller(server_mode)
+def get_controller(server_mode):
     logging.info('Connecting to Consul for on: %s:%s' % (settings['CONSUL_ADDRESS'], settings['CONSUL_PORT']))
     consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
     registry = HostRegistry(consul=consul)

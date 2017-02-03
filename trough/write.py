@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-from trough.settings import Settings
+import trough
+from trough.settings import settings
 import sqlite3
 import ujson
 import os
 import sqlparse
 import logging
 
-settings = Settings()
-
 class WriteServer:
-
     def write(self, segment_name, query):
         logging.info('Servicing request: {query}'.format(query=query))
         # if one or more of the query(s) are not a write query, raise an exception.

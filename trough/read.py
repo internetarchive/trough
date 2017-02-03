@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import trough
+from trough.settings import settings
 import sqlite3
 import ujson
 import os
@@ -8,10 +9,6 @@ import logging
 import consulate
 import requests
 from contextlib import closing
-
-settings = trough.settings.Settings()
-
-# TODO: add a consul check to ensure that there is no write lock on this segment.
 
 class ReadServer:
     def proxy_for_write_host(self, segment, query):
