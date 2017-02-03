@@ -1,10 +1,14 @@
+import os
+os.environ['TROUGH_LOG_LEVEL'] = 'ERROR'
+os.environ['TROUGH_SETTINGS'] = os.path.join(os.path.dirname(__file__), "test.conf")
+
 import unittest
 from unittest import mock
 import trough
 import json
 import sqlite3
 from tempfile import NamedTemporaryFile
-import os
+from trough import sync
 
 class TestReadServer(unittest.TestCase):
     def setUp(self):
@@ -66,6 +70,19 @@ class TestReadServer(unittest.TestCase):
         database_file.close()
         cursor.close()
         connection.close()
+    @mock.patch("trough.read.requests")
+    def test_proxy_for_write_segment(self, requests):
+        def post(*args, **kwargs):
+            response = mock.Mock()
+            response.headers = {"Content-Type": "application/json"}
+            response.iter_content = lambda: ["test", "output"]
+            return response
+        requests.post = post
+        consul = mock.Mock()
+        registry = mock.Mock()
+        segment = trough.sync.Segment(segment_id="TEST", consul=consul, registry=registry, size=0)
+        output = self.server.proxy_for_write_host(segment, "SELECT * FROM mock;")
+        self.assertEqual(output, ["test", "output"])
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,3 +1,7 @@
+import os
+os.environ['TROUGH_LOG_LEVEL'] = 'ERROR'
+os.environ['TROUGH_SETTINGS'] = os.path.join(os.path.dirname(__file__), "test.conf")
+
 import unittest
 from unittest import mock
 from trough import write
@@ -7,17 +11,21 @@ from tempfile import NamedTemporaryFile
 
 class TestReadServer(unittest.TestCase):
     def setUp(self):
-        self.server = write.WriteServer(mock.Mock())
+        self.server = write.WriteServer()
     def test_empty_write(self):
         database_file = NamedTemporaryFile()
+        segment = mock.Mock()
+        segment.segment_path = lambda: database_file.name
         # no inserts!
         output = b""
         with self.assertRaises(Exception):
-            output = self.server.write(database_file.name, b'')
+            output = self.server.write(segment, b'')
         database_file.close()
         self.assertEqual(output, b'')
     def test_read_failure(self):
         database_file = NamedTemporaryFile()
+        segment = mock.Mock()
+        segment.segment_path = lambda: database_file.name
         connection = sqlite3.connect(database_file.name)
         cursor = connection.cursor()
         cursor.execute('CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));')
@@ -25,14 +33,14 @@ class TestReadServer(unittest.TestCase):
         connection.commit()
         output = b""
         with self.assertRaises(Exception):
-            output = self.server.write(database_file.name, b'SELECT * FROM "test";')
+            output = self.server.write(segment, b'SELECT * FROM "test";')
         database_file.close()
     def test_write(self):
         database_file = NamedTemporaryFile()
-        output = self.server.write(database_file.name, b'CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));')
-        print(output)
-        output = self.server.write(database_file.name, b'INSERT INTO test (test) VALUES ("test");')
-        print(output)
+        segment = mock.Mock()
+        segment.segment_path = lambda: database_file.name
+        output = self.server.write(segment, b'CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));')
+        output = self.server.write(segment, b'INSERT INTO test (test) VALUES ("test");')
         connection = sqlite3.connect(database_file.name)
         cursor = connection.cursor()
         output = cursor.execute('SELECT * FROM test;')
@@ -40,6 +48,28 @@ class TestReadServer(unittest.TestCase):
             output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
         database_file.close()
         self.assertEqual(output, {'id': 1, 'test': 'test'})
+    @mock.patch('trough.write.consulate')
+    def test_write_failure_to_read_only_segment(self, consulate):
+        def Consul(*args, **kwargs):
+            consul = mock.Mock()
+            consul.kv = {}
+            return consul
+        consulate.Consul = Consul
+        database_file = NamedTemporaryFile()
+        segment = mock.Mock()
+        segment.segment_path = lambda: database_file.name
+        connection = sqlite3.connect(database_file.name)
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));')
+        # set up an environment for uwsgi mock
+        env = {}
+        env['HTTP_HOST'] = "TEST.host"
+        env['wsgi.input'] = mock.Mock()
+        env['wsgi.input'].read = lambda: b'INSERT INTO test (test) VALUES ("test")'
+        start = mock.Mock()
+        output = self.server(env, start)
+        self.assertEqual(output, [b"500 Server Error: This node cannot write to segment 'TEST'. There is no write lock set, or the write lock authorizes another node."])
+        database_file.close()
 
 if __name__ == '__main__':
     unittest.main()
