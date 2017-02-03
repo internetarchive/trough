@@ -37,7 +37,7 @@ settings = {
     'READ_PORT': 6004,
     'WRITE_PORT': 6002,
     'SYNC_PORT': 6001,
-    'EXTERNAL_IP': get_ip(),
+    'EXTERNAL_IP': None,
     'HOST_CHECK_WAIT_PERIOD': 5, # if the sync master starts before anything else, poll for hosts to assign to every N seconds.
     'STORAGE_IN_BYTES': None, # this will be set later, if it is not set in settings.yml
     'HOSTNAME': socket.gethostname(),
@@ -73,3 +73,6 @@ if settings['STORAGE_IN_BYTES'] is None:
     storage_in_bytes = get_storage_in_bytes()
     logging.warning("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s bytes" % (settings['LOCAL_DATA'], storage_in_bytes))
     settings['STORAGE_IN_BYTES'] = storage_in_bytes
+
+if settings['EXTERNAL_IP'] is None:
+    settings['EXTERNAL_IP'] = get_ip()
