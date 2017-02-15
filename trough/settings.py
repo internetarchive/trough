@@ -9,6 +9,13 @@ logging.basicConfig(
     format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
            '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
 
+def sizeof_fmt(num, suffix='B'):
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
+
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect(("example.com", 80))
@@ -71,7 +78,7 @@ if not os.path.isdir(settings['LOCAL_DATA']):
 
 if settings['STORAGE_IN_BYTES'] is None:
     storage_in_bytes = get_storage_in_bytes()
-    logging.warning("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s bytes" % (settings['LOCAL_DATA'], storage_in_bytes))
+    logging.warning("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s" % (settings['LOCAL_DATA'], sizeof_fmt(storage_in_bytes)))
     settings['STORAGE_IN_BYTES'] = storage_in_bytes
 
 if settings['EXTERNAL_IP'] is None:
