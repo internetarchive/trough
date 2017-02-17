@@ -135,7 +135,7 @@ class TestHostRegistry(unittest.TestCase):
     def test_host_load(self):
         self.consul.kv['127.0.0.1'] = 1024 * 1024
         self.consul.kv['127.0.0.1/seg1'] = 1024
-        self.consul.kv['127.0.0.1/seg2'] = 1024
+        self.consul.kv['127.0.0.1/seg2'] = '1024'
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
             services[name] = [{ "Node": address }]

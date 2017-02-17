@@ -18,7 +18,7 @@ class Segment(object):
     def __init__(self, consul, segment_id, size, registry):
         self.consul = consul
         self.id = segment_id
-        self.size = size
+        self.size = int(size)
         self.registry = registry
     def host_key(self, host):
         return "%s/%s" % (host, self.id)
@@ -92,7 +92,7 @@ class HostRegistry(object):
     def host_load(self):
         output = []
         for host in self.get_hosts():
-            assigned_bytes = sum(self.consul.kv.find('%s/' % host['Node']).values())
+            assigned_bytes = sum([int(value) for value in self.consul.kv.find('%s/' % host['Node']).values()])
             total_bytes = self.consul.kv.get("%s" % host['Node'])
             total_bytes = 0 if total_bytes in ['null', None] else int(total_bytes)
             output.append({
@@ -125,6 +125,8 @@ class HostRegistry(object):
         return False
     def register(self, name, service_id, address=settings['EXTERNAL_IP'], \
             port=settings['READ_PORT'], tags=[], ttl=str(settings['READ_NODE_DNS_TTL']) + 's'):
+        if type(ttl) == int:
+            ttl = "%ss" % ttl
         logging.info('Registering: name[%s] service_id[%s] at /v1/catalog/service/%s on IP %s:%s with TTL %s' % (name, service_id, service_id, address, port, ttl))
         self.consul.agent.service.register(name, service_id=service_id, address=address, port=port, tags=tags, ttl=ttl)
     def deregister(self, name, service_id):
@@ -210,12 +212,13 @@ class MasterSyncController(SyncController):
                 service_id='trough/sync/master',
                 port=settings['SYNC_PORT'],
                 tags=['master'],
-                ttl=settings['ELECTION_CYCLE'] * 3)
+                ttl=settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2)
             self.registry.reset_health_check(pool='sync', service_name='master')
             return True
 
     def wait_to_become_leader(self):
         # hold an election every settings['ELECTION_CYCLE'] seconds
+        self.leader = self.hold_election()
         while not self.leader:
             self.leader = self.hold_election()
             if not self.leader:
@@ -392,9 +395,12 @@ class LocalSyncController(SyncController):
             sys.exit("{} Exiting...".format(str(e)))
 
     def check_segment_matches_hdfs(self, segment):
-        logging.info('Checking that segment %s matches its byte count in HDFS.' % segment.id)
+        logging.info('Checking that segment %s matches its byte count in HDFS.' % (segment.id,))
         try:
-            if segment.size == os.path.getsize(segment.local_path()):
+            logging.info('HDFS recorded size: %s' % segment.size)
+            local_size = os.path.getsize(segment.local_path())
+            logging.info('local size: %s' % local_size)
+            if segment.size == local_size:
                 logging.info('Byte counts match.')
                 return True
         except Exception as e:
@@ -431,7 +437,8 @@ class LocalSyncController(SyncController):
             matches_hdfs = self.check_segment_matches_hdfs(segment)
             if not exists or not matches_hdfs:
                 self.copy_segment_from_hdfs(segment)
-                self.registry.register('trough-read-segments', service_id='trough/read/%s' % segment.id, tags=[segment.id], ttl=segment_health_ttl)
+            logging.info('registering segment %s...' % (segment.id))
+            self.registry.register('trough-read-segments', service_id='trough/read/%s' % segment.id, tags=[segment.id], ttl=segment_health_ttl)
             self.registry.reset_health_check('read', segment.id)
 
     def provision_writable_segment(self, segment_id):
@@ -510,6 +517,7 @@ if __name__ == '__main__':
     controller.check_config()
     while True:
         controller.sync()
+        logging.info('Sleeping for %s seconds' % settings['SYNC_LOOP_TIMING'])
         time.sleep(settings['SYNC_LOOP_TIMING'])
 
 
