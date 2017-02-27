@@ -1,0 +1,10 @@
+---
+- name: deploy consul servers
+  hosts: trough-consul-server
+  vars:
+    consul_is_server: "true"
+    consul_datacenter: "archive.org"
+    consul_bootstrap: "true"
+    consul_bind_address: "{{ ansible_default_ipv4['address'] }}"
+  roles:
+    - ansible-consul

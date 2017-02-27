@@ -1,0 +1,8 @@
+[Unit]
+Description=Trough Sync Server Daemon
+
+[Service]
+ExecStart={{venv_root}}/trough-ve34/trough/sync.py --server
+
+[Install]
+WantedBy=multi-user.target

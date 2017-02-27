@@ -1,0 +1,19 @@
+- name: ensure consul is installed
+  local_action: command ansible-galaxy install -r requirements.yml
+- name: ensure trough is installed
+  become: true
+  become_user: "{{user}}"
+  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough
+
+- name: start trough sync in server mode
+  local_action: python -m trough.sync --server
+
+- name: install sync-server systemd unit file
+  template: src=sync-server.j2 dest=/etc/systemd/system/sync-server.service
+- name: start sync-server
+  systemd: state=started name=sync-server daemon_reload=yes
+
+- name: install write-provisioner systemd unit file
+  template: src=write-provisioner.j2 dest=/etc/systemd/system/write-provisioner.service
+- name: start write-provisioner
+  systemd: state=started name=write-provisioner daemon_reload=yes

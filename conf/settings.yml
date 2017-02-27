@@ -1,1 +1,4 @@
-
+HDFS_PATH: /ait/prod/trough/
+HDFS_HOST: localhost
+HDFS_PORT: 6000
+MINIMUM_ASSIGNMENTS: "lambda segment_id: 2 if segment_id.isnumeric() and int(segment_id) > 200000 else 1"

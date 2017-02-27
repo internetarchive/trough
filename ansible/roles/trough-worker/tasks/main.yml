@@ -1,0 +1,19 @@
+- name: ensure consul is installed
+  local_action: command ansible-galaxy install -r requirements.yml
+- name: ensure trough is installed
+  become: true
+  become_user: "{{user}}"
+  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough-ve34
+- name: install trough dependencies
+  become: true
+  become_user: "{{user}}"
+  pip: requirements={{venv_root}}/trough-ve34/requirements.txt
+       virtualenv={{venv_root}}/trough-ve34 virtualenv_python=python3.4
+       editable=false
+       extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
+- name: start trough sync in local mode
+  local_action: python -m trough.sync
+- name: start uwsgi daemon to listen for read requests
+  local_action: python -m uwsgi {{venv_root}}/trough-ve34/trough/read.py
+- name: start uwsgi daemon to listen for write requests
+  local_action: python -m uwsgi {{venv_root}}/trough-ve34/trough/write.py

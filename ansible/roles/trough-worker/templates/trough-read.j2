@@ -1,0 +1,8 @@
+[Unit]
+Description=Trough Read Daemon
+
+[Service]
+ExecStart={{venv_root}}/trough-ve34/trough/read.py
+
+[Install]
+WantedBy=multi-user.target
