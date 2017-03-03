@@ -79,14 +79,8 @@ The Nodes
 
 Read Node
 =========
-    - Runs a Reader process
-    - Runs a Synchronizer process (Local mode)
-    - Runs a Consul Agent (Local mode)
-
-Write Node
-==========
-    - Runs a Writer process
-    - Runs a Reader process
+    - Runs a Read process
+    - Runs a Write process
     - Runs a Synchronizer process (Local mode)
     - Runs a Consul Agent (Local mode)
 
@@ -96,4 +90,5 @@ Consul Node
 
 Synchronizer Node
 =================
+    - Runs a Consul Agent (Local Mode)
     - Runs a Synchronizer process (Server mode)
