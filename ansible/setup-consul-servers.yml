@@ -1,10 +1,9 @@
 ---
 - name: deploy consul servers
-  hosts: trough-consul-server
+  hosts: cluster_nodes
+  become: true
   vars:
-    consul_is_server: "true"
-    consul_datacenter: "archive.org"
-    consul_bootstrap: "true"
-    consul_bind_address: "{{ ansible_default_ipv4['address'] }}"
+    consul_version: 0.7.5
+    consul_iface: eth0
   roles:
-    - trough-consul-server
+    - ansible-consul

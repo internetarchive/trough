@@ -3,7 +3,7 @@
 - name: ensure trough is installed
   become: true
   become_user: "{{user}}"
-  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough
+  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough-ve34
 
 - name: start trough sync in server mode
   local_action: python -m trough.sync --server

@@ -1,3 +1,0 @@
-- name: ensure consul is installed
-  command: ansible-galaxy install -r galaxy/requirements.yml
-  # creates: /etc/consul/consul.conf # or whatever

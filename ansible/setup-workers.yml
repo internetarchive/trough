@@ -1,10 +1,5 @@
 ---
 - name: deploy trough worker
   hosts: trough-worker
-  vars:
-    consul_is_server: "false"
-    consul_datacenter: "archive.org"
-    consul_bind_address: "{{ ansible_default_ipv4['address'] }}"
   roles:
-    - ansible-consul
     - trough-worker
