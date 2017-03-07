@@ -11,9 +11,18 @@
        virtualenv={{venv_root}}/trough-ve34 virtualenv_python=python3.4
        editable=false
        extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
-- name: start trough sync in local mode
-  local_action: python -m trough.sync
-- name: start uwsgi daemon to listen for read requests
-  local_action: python -m uwsgi {{venv_root}}/trough-ve34/trough/read.py
-- name: start uwsgi daemon to listen for write requests
-  local_action: python -m uwsgi {{venv_root}}/trough-ve34/trough/write.py
+
+- name: install sync-local systemd unit file
+  template: src=sync-local.j2 dest=/etc/systemd/system/sync-local.service
+- name: start sync-local
+  systemd: state=started name=sync-local daemon_reload=yes
+
+- name: install trough-write systemd unit file
+  template: src=trough-write.j2 dest=/etc/systemd/system/trough-write.service
+- name: start trough-write
+  systemd: state=started name=trough-write daemon_reload=yes
+
+- name: install trough-read systemd unit file
+  template: src=trough-write.j2 dest=/etc/systemd/system/trough-write.service
+- name: start trough-read
+  systemd: state=started name=trough-read daemon_reload=yes

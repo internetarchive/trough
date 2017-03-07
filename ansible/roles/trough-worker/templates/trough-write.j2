@@ -1,8 +1,0 @@
-[Unit]
-Description=Trough Write Daemon
-
-[Service]
-ExecStart={{venv_root}}/trough-ve34/bin/uwsgi {{venv_root}}/trough-ve34/trough/write.py
-
-[Install]
-WantedBy=multi-user.target

@@ -21,21 +21,31 @@
   become_user: "{{user}}"
   git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough-ve34
 
-- name: Install sync-server systemd unit file
+- name: Install sync-server init.d shell script
   become: true
+  vars:
+    daemon: {{ venv_root }}/trough-ve34/trough/sync.py
+    daemon_args: --server
+    service_name: sync-server
+    service_description: Trough Sync Server
   template:
-    src: sync-server.j2
-    dest: "/etc/systemd/system/sync-server.service"
+    src: initd-skeleton.j2
+    dest: "/etc/init.d/sync-server.sh"
 
 - name: "Start sync-server" 
   become: true
   systemd: state=started name="sync-server" daemon_reload=yes
 
-- name: Install write-provisioner systemd unit file
+- name: Install write-provisioner init.d shell script
   become: true
+  vars:
+    daemon: {{venv_root}}/trough-ve34/bin/uwsgi
+    daemon_args: {{venv_root}}/trough-ve34/trough/sync.py
+    service_name: write-provisioner
+    service_description: Trough Sync Write Provisioner
   template:
-    src: write-provisioner.j2
-    dest: "/etc/systemd/system/write-provisioner.service"
+    src: initd-skeleton.j2
+    dest: "/etc/init.d/write-provisioner.sh"
 
 - name: Start write-provisioner
   become: true

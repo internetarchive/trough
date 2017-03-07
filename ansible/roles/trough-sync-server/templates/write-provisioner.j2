@@ -1,8 +1,0 @@
-[Unit]
-Description=Trough Write Provisioning Daemon
-
-[Service]
-ExecStart={{venv_root}}/trough-ve34/bin/uwsgi {{venv_root}}/trough-ve34/trough/sync.py
-
-[Install]
-WantedBy=multi-user.target
