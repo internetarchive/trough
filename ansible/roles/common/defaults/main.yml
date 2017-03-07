@@ -1,3 +1,12 @@
 ---
 user: trough
 venv_root: /opt
+read_port: 6004
+write_port: 6002
+sync_port: 6001
+
+consul_bind_address: "0.0.0.0:6300"
+consul_http_bind_address: "0.0.0.0:6500"
+consul_rpc_bind_address: "0.0.0.0:6400"
+consul_serf_wan_bind_address: "0.0.0.0:6302"
+consul_serf_lan_bind_address: "0.0.0.0:6301"
