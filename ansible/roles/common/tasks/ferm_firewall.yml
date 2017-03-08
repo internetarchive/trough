@@ -12,12 +12,14 @@
   become_user: root
   become: true
   vars:
-    begin_port: {{ sync_port }}
-    end_port: {{ read_port }}
+    begin_port: "{{ sync_port }}"
+    end_port: "{{ read_port }}"
   template:
     src: templates/open-ports.ferm.j2
     dest: /etc/ferm/input/cluster.trough.ports
 
 - name: Reload FERM configuration
-  service: ferm
+  become: true
+  service:
+    name: ferm
     state: reloaded
