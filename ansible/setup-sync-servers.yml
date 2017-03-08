@@ -3,4 +3,5 @@
   hosts: trough-sync-server
   roles:
     - common
+    - ansible-consul
     - trough-sync-server
