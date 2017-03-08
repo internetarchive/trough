@@ -1,1 +1,23 @@
-ferm_firewall.yml
+- name: Open Consul firewall ports
+  become_user: root
+  become: true
+  vars:
+    begin_port: 8300
+    end_port: 8302
+  template:
+    src: templates/open-ports.ferm.j2
+    dest: /etc/ferm/input/cluster.consul.ports
+
+- name: Open Trough firewall ports
+  become_user: root
+  become: true
+  vars:
+    begin_port: {{ sync_port }}
+    end_port: {{ read_port }}
+  template:
+    src: templates/open-ports.ferm.j2
+    dest: /etc/ferm/input/cluster.trough.ports
+
+- name: Reload FERM configuration
+  service: ferm
+    state: reloaded
