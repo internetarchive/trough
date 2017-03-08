@@ -24,7 +24,7 @@
 - name: Install sync-server init.d shell script
   become: true
   vars:
-    daemon: {{ venv_root }}/trough-ve34/trough/sync.py
+    daemon: "{{ venv_root }}/trough-ve34/trough/sync.py"
     daemon_args: --server
     service_name: sync-server
     service_description: Trough Sync Server
@@ -39,8 +39,8 @@
 - name: Install write-provisioner init.d shell script
   become: true
   vars:
-    daemon: {{venv_root}}/trough-ve34/bin/uwsgi
-    daemon_args: {{venv_root}}/trough-ve34/trough/sync.py
+    daemon: "{{venv_root}}/trough-ve34/bin/uwsgi"
+    daemon_args: "{{venv_root}}/trough-ve34/trough/sync.py"
     service_name: write-provisioner
     service_description: Trough Sync Write Provisioner
   template:
