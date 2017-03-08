@@ -2,4 +2,5 @@
 - name: deploy trough worker
   hosts: trough-worker
   roles:
+    - common
     - trough-worker

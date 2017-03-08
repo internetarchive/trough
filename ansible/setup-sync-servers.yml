@@ -2,4 +2,5 @@
 - name: deploy sync servers
   hosts: trough-sync-server
   roles:
+    - common
     - trough-sync-server
