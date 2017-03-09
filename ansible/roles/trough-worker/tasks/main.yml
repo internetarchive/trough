@@ -1,28 +1,96 @@
-- name: ensure consul is installed
-  local_action: command ansible-galaxy install -r requirements.yml
-- name: ensure trough is installed
+---
+# File: tasks/main.yml - Main tasks for Trough Worker Nodes
+
+- name: Add Trough user
+  become: true
+  user:
+    name: trough
+    comment: "Trough User"
+    group: bin
+    createhome: no
+
+- name: Ensure Trough user can write to venv_root
+  become: true
+  file:
+    path: /opt
+    group: bin
+    mode: 0775
+
+- name: debug trough version
+  debug:
+    msg: "trough_git_url: {{trough_git_url}} trough_git_branch: {{trough_git_branch}} venv_root: {{venv_root}}"
+
+
+- name: Ensure Trough is installed
   become: true
   become_user: "{{user}}"
-  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough-ve34
-- name: install trough dependencies
+  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough-ve3 force=yes
+
+- name: Install Trough dependencies
   become: true
   become_user: "{{user}}"
-  pip: requirements={{venv_root}}/trough-ve34/requirements.txt
-       virtualenv={{venv_root}}/trough-ve34 virtualenv_python=python3.4
+  pip: requirements="{{venv_root}}/trough-ve3/requirements.txt"
+       virtualenv="{{venv_root}}/trough-ve3"
+       virtualenv_python=python3
        editable=false
        extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
 
-- name: install sync-local systemd unit file
-  template: src=sync-local.j2 dest=/etc/systemd/system/sync-local.service
-- name: start sync-local
-  systemd: state=started name=sync-local daemon_reload=yes
+- name: Install sync-local init.d shell script
+  become: true
+  vars:
+    daemon: "{{ venv_root }}/trough-ve3/trough/sync.py"
+    daemon_args: ""
+    service_name: sync-local
+    service_description: Trough Local Sync
+  template:
+    src: initd-skeleton.j2
+    dest: "/etc/init.d/sync-local"
+    owner: root
+    mode: 0744
 
-- name: install trough-write systemd unit file
-  template: src=trough-write.j2 dest=/etc/systemd/system/trough-write.service
-- name: start trough-write
-  systemd: state=started name=trough-write daemon_reload=yes
+- name: "Start sync-local" 
+  become: true
+  service:
+    name: sync-local
+    enabled: yes
+    state: started
 
-- name: install trough-read systemd unit file
-  template: src=trough-write.j2 dest=/etc/systemd/system/trough-write.service
-- name: start trough-read
-  systemd: state=started name=trough-read daemon_reload=yes
+- name: Install trough-write init.d shell script
+  become: true
+  vars:
+    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
+    daemon_args: "{{venv_root}}/trough-ve3/trough/write.py"
+    service_name: trough-write
+    service_description: Trough Write Server
+  template:
+    src: initd-skeleton.j2
+    dest: "/etc/init.d/trough-write"
+    owner: root
+    mode: 0744
+
+- name: Start trough-write
+  become: true
+  service:
+    name: trough-write
+    enabled: yes
+    state: started
+
+- name: Install trough-read init.d shell script
+  become: true
+  vars:
+    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
+    daemon_args: "{{venv_root}}/trough-ve3/trough/read.py"
+    service_name: trough-read
+    service_description: Trough Read Server
+  template:
+    src: initd-skeleton.j2
+    dest: "/etc/init.d/trough-read"
+    owner: root
+    mode: 0744
+
+- name: Start trough-read
+  become: true
+  service:
+    name: trough-read
+    enabled: yes
+    state: started

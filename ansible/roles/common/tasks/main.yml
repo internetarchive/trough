@@ -1,18 +1,17 @@
 ---
 - name: ensure required packages are installed
-  become_user: root
   become: true
   apt: name={{item}} state=present
   with_items:
   - git
-  - python3.4-dev
-- file: path=/1 state=directory owner={{user}} group=archiveit
-  become: true
+  - gcc
+  - python3-dev
 
 # get recent virtualenv, which bundles a recent pip
 - command: mktemp -d
   register: mktempd_out
 - name: download virtualenv-15.1.0
+  become: true
   get_url:
     url: https://pypi.python.org/packages/d4/0c/9840c08189e030873387a73b90ada981885010dd9aea134d6de30cd24cb8/virtualenv-15.1.0.tar.gz
     dest: '{{mktempd_out.stdout}}'
@@ -28,8 +27,14 @@
     path: '{{mktempd_out.stdout}}'
     state: absent
   become: true
+  become_user: root
 
-# if ferm is installed:
+# this debug message produces the below output on Ubuntu xenial:
+#- debug:
+#    msg: "System {{ inventory_hostname }} has os_family: {{ ansible_os_family }} and distribution_major_version: {{ ansible_distribution_major_version }}"
+# ok: [wbgrp-svc111] => {
+#    "msg": "System wbgrp-svc111 has os_family: Debian and distribution_major_version: 16"
+# }
 - name: Include ferm firewall rules if we are on Ubuntu xenial
-  when: ansible_os_family == "Ubuntu" and ansible_distribution_major_version == "16"
+  when: ansible_os_family == "Debian" and ansible_distribution_major_version == "16"
   include: ferm_firewall.yml
