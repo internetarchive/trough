@@ -1,7 +1,8 @@
 ---
+- include: setup-consul-servers.yml
+
 - name: deploy trough worker
   hosts: trough-worker
   roles:
     - common
-    - ansible-consul
     - trough-worker
