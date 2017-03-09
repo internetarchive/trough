@@ -12,24 +12,14 @@
 - name: Ensure Trough user can write to venv_root
   become: true
   file:
-    path: /opt
+    path: "{{ venv_root }}"
     group: bin
     mode: 0775
 
-- name: debug trough version
-  debug:
-    msg: "trough_git_url: {{trough_git_url}} trough_git_branch: {{trough_git_branch}} venv_root: {{venv_root}}"
-
-
-- name: Ensure Trough is installed
+- name: Install Trough
   become: true
   become_user: "{{user}}"
-  git: repo={{trough_git_url}} version={{trough_git_branch}} dest={{venv_root}}/trough-ve3 force=yes
-
-- name: Install Trough dependencies
-  become: true
-  become_user: "{{user}}"
-  pip: requirements="{{venv_root}}/trough-ve3/requirements.txt"
+  pip: name="{{trough_git_url}}@{{trough_git_branch}}#egg=trough"
        virtualenv="{{venv_root}}/trough-ve3"
        virtualenv_python=python3
        editable=false
