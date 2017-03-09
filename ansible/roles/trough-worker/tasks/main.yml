@@ -19,7 +19,7 @@
 - name: Install Trough
   become: true
   become_user: "{{user}}"
-  pip: name="{{trough_git_url}}@{{trough_git_branch}}#egg=trough"
+  pip: name="git+{{trough_git_url}}@{{trough_git_branch}}#egg=trough"
        virtualenv="{{venv_root}}/trough-ve3"
        virtualenv_python=python3
        editable=false
