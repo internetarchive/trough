@@ -9,10 +9,10 @@
 ### END INIT INFO
 
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
-DESC={{ service_description }}
+DESC="{{ service_description }}"
 NAME={{ service_name }}
 DAEMON={{ daemon }}
-DAEMON_ARGS={{ daemon_args }}
+DAEMON_ARGS="{{ daemon_args }}"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
