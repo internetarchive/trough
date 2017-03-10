@@ -49,7 +49,7 @@
   become: true
   vars:
     daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "--http :{{sync_port}} --wsgi-script {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
+    daemon_args: "--http :{{sync_port}} --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
     service_name: write-provisioner
     service_description: Trough Sync Write Provisioner
   template:
