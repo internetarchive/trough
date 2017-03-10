@@ -49,7 +49,7 @@
   become: true
   vars:
     daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "{{venv_root}}/trough-ve3/trough/write.py"
+    daemon_args: "--http :{{write_port}} --wsgi-script {{venv_root}}/trough-ve3/bin/writer.py"
     service_name: trough-write
     service_description: Trough Write Server
   template:
@@ -69,7 +69,27 @@
   become: true
   vars:
     daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "{{venv_root}}/trough-ve3/trough/read.py"
+    daemon_args: "--http :{{read_port}} --wsgi-script {{venv_root}}/trough-ve3/bin/reader.py"
+    service_name: trough-read
+    service_description: Trough Read Server
+  template:
+    src: initd-skeleton.j2
+    dest: "/etc/init.d/trough-read"
+    owner: root
+    mode: 0744
+
+- name: Start trough-read
+  become: true
+  service:
+    name: trough-read
+    enabled: yes
+    state: started
+
+- name: Install trough-write-provisioner-local init.d shell script
+  become: true
+  vars:
+    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
+    daemon_args: "--http :{{sync_port}} --wsgi-script {{ venv_root }}/trough-ve3/bin/write-provisioner-local.py"
     service_name: trough-read
     service_description: Trough Read Server
   template:

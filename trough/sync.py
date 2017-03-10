@@ -502,35 +502,3 @@ def get_controller(server_mode):
             snakebite_client=snakebite_client)
 
     return controller
-
-# freestanding script entrypoint
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(description='Run a "server" sync process, which controls other sync processes, ' \
-        'or a "local" sync process, which loads segments onto the current machine and performs health checks.')
-
-    parser.add_argument('--server', dest='server', action='store_true',
-                        help='run in server or "master" mode: control the actions of other local synchronizers.')
-    args = parser.parse_args()
-
-    controller = get_controller(args.server)
-    controller.check_config()
-    while True:
-        controller.sync()
-        logging.info('Sleeping for %s seconds' % settings['SYNC_LOOP_TIMING'])
-        time.sleep(settings['SYNC_LOOP_TIMING'])
-
-
-# wsgi entrypoint
-def application(env, start_response):
-    # need a way to differentiate server mode from local mode. Store in `env`?
-    try:
-        controller = get_controller(env.get('master_mode', False))
-        controller.check_config()
-        segment_name = env.get('wsgi.input').read()
-        output = controller.provision_writable_segment(segment_name)
-        start_response()
-        return output
-    except Exception as e:
-        start_response('500 Server Error', [('Content-Type', 'text/plain')])
-        return [b'500 Server Error: %s' % str(e).encode('utf-8')]

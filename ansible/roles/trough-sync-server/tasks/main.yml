@@ -28,7 +28,7 @@
 - name: Install sync-server init.d shell script
   become: true
   vars:
-    daemon: "{{ venv_root }}/trough-ve3/trough/sync.py"
+    daemon: "{{ venv_root }}/trough-ve3/bin/sync.py"
     daemon_args: --server
     service_name: sync-server
     service_description: Trough Sync Server
@@ -49,7 +49,7 @@
   become: true
   vars:
     daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "{{venv_root}}/trough-ve3/trough/sync.py"
+    daemon_args: "--http :{{sync_port}} --wsgi-script {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
     service_name: write-provisioner
     service_description: Trough Sync Write Provisioner
   template:

@@ -1,4 +1,5 @@
 from setuptools import setup
+import glob
 
 setup(
     name='Trough',
@@ -25,4 +26,5 @@ setup(
         'sqlparse==0.2.2',
         'uWSGI==2.0.14',
     ],
+    scripts=glob.glob('scripts/*.py'),
 )
