@@ -90,17 +90,17 @@
   vars:
     daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
     daemon_args: "--http :{{sync_port}} --daemonize --die-on-term --wsgi-file {{ venv_root }}/trough-ve3/bin/write-provisioner-local.py"
-    service_name: trough-read
-    service_description: Trough Read Server
+    service_name: trough-write-provisioner-local
+    service_description: Trough Local Write Provisioner Server
   template:
     src: initd-skeleton.j2
-    dest: "/etc/init.d/trough-read"
+    dest: "/etc/init.d/trough-write-provisioner-local"
     owner: root
     mode: 0744
 
-- name: Start trough-read
+- name: Start trough-write-provisioner-local
   become: true
   service:
-    name: trough-read
+    name: trough-write-provisioner-local
     enabled: yes
     state: started
