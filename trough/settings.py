@@ -41,9 +41,9 @@ settings = {
     'HDFS_PATH': None, # /ait/prod/trough/
     'HDFS_HOST': None,
     'HDFS_PORT': None,
-    'READ_PORT': 6004,
-    'WRITE_PORT': 6002,
-    'SYNC_PORT': 6001,
+    'READ_PORT': 6444,
+    'WRITE_PORT': 6222,
+    'SYNC_PORT': 6111,
     'EXTERNAL_IP': None,
     'HOST_CHECK_WAIT_PERIOD': 5, # if the sync master starts before anything else, poll for hosts to assign to every N seconds.
     'STORAGE_IN_BYTES': None, # this will be set later, if it is not set in settings.yml

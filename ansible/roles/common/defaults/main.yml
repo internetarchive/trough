@@ -1,6 +1,6 @@
 ---
 user: trough
 venv_root: /opt
-read_port: 6004
-write_port: 6002
-sync_port: 6001
+read_port: 6444
+write_port: 6222
+sync_port: 6111
