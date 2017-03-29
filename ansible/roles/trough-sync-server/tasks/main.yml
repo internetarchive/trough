@@ -25,18 +25,25 @@
        editable=false
        extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
 
-- name: Install sync-server init.d shell script
+- name: Install sync-server supervised by daemontools in /etc/service
   become: true
   vars:
-    daemon: "{{ venv_root }}/trough-ve3/bin/sync.py"
-    daemon_args: --server
-    service_name: sync-server
-    service_description: Trough Sync Server
+    command: "{{ venv_root }}/trough-ve3/bin/sync.py --server"
   template:
-    src: initd-skeleton.j2
-    dest: "/etc/init.d/sync-server"
+    src: service-skeleton.j2
+    dest: "/etc/service/sync-server"
     owner: root
-    mode: 0744
+    mode: 0755
+
+- name: Install daemontools logging for sync-server
+  become: true
+  vars:
+    command: "setuidgid {{user}} multilog t ./main"
+  template:
+    src: service-skeleton.j2
+    dest: "/etc/service/sync-server/log/run"
+    owner: "{{user}}"
+    mode: 0755
 
 - name: "Start sync-server" 
   become: true
@@ -45,18 +52,25 @@
     enabled: yes
     state: started
 
-- name: Install write-provisioner init.d shell script
+- name: Install write-provisioner supervised by daemontools in /etc/service
   become: true
   vars:
-    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "--http :{{sync_port}} --daemonize --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
-    service_name: write-provisioner
-    service_description: Trough Sync Write Provisioner
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
   template:
-    src: initd-skeleton.j2
-    dest: "/etc/init.d/write-provisioner"
+    src: service-skeleton.j2
+    dest: "/etc/service/write-provisioner"
     owner: root
-    mode: 0744
+    mode: 0755
+
+- name: Install daemontools logging for write-provisioner
+  become: true
+  vars:
+    command: "setuidgid {{user}} multilog t ./main"
+  template:
+    src: service-skeleton.j2
+    dest: "/etc/service/write-provisioner/log/run"
+    owner: "{{user}}"
+    mode: 0755
 
 - name: Start write-provisioner
   become: true

@@ -6,6 +6,7 @@
   - git
   - gcc
   - python3-dev
+  - daemontools-run
 
 # get recent virtualenv, which bundles a recent pip
 - command: mktemp -d
