@@ -19,22 +19,14 @@
 - name: Ensure daemontools logging structure is in place
   become: true
   file:
-    path: "/etc/service/sync-local/log/main"
+    path: "/etc/service/{{item}}/log/main"
     state: directory
     owner: "{{user}}"
-  file:
-    path: "/etc/service/trough-write/log/main"
-    state: directory
-    owner: "{{user}}"
-  file:
-    path: "/etc/service/trough-read/log/main"
-    state: directory
-    owner: "{{user}}"
-  file:
-    path: "/etc/service/trough-write-provisioner-local/log/main"
-    state: directory
-    owner: "{{user}}"
-
+  with_items:
+    - sync-local
+    - trough-write
+    - trough-read
+    - trough-write-provisioner-local
 
 - name: Install Trough
   become: true

@@ -16,6 +16,16 @@
     group: bin
     mode: 0775
 
+- name: Ensure daemontools logging structure is in place
+  become: true
+  file:
+    path: "/etc/service/{{item}}/log/main"
+    state: directory
+    owner: "{{user}}"
+  with_items:
+    - sync-server
+    - write-provisioner
+    
 - name: Install Trough
   become: true
   become_user: "{{user}}"
