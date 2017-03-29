@@ -16,6 +16,26 @@
     group: bin
     mode: 0775
 
+- name: Ensure daemontools logging structure is in place
+  become: true
+  file:
+    path: "/etc/service/sync-local/log/main"
+    state: directory
+    owner: "{{user}}"
+  file:
+    path: "/etc/service/trough-write/log/main"
+    state: directory
+    owner: "{{user}}"
+  file:
+    path: "/etc/service/trough-read/log/main"
+    state: directory
+    owner: "{{user}}"
+  file:
+    path: "/etc/service/trough-write-provisioner-local/log/main"
+    state: directory
+    owner: "{{user}}"
+
+
 - name: Install Trough
   become: true
   become_user: "{{user}}"
@@ -25,82 +45,114 @@
        editable=false
        extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
 
-- name: Install sync-local init.d shell script
+- name: Install sync-local supervised by daemontools in /etc/service
   become: true
   vars:
-    daemon: "{{ venv_root }}/trough-ve3/trough/sync.py"
-    daemon_args: ""
-    service_name: sync-local
-    service_description: Trough Local Sync
+    command: "{{ venv_root }}/trough-ve3/trough/sync.py"
   template:
-    src: initd-skeleton.j2
-    dest: "/etc/init.d/sync-local"
+    src: service-skeleton.j2
+    dest: "/etc/service/sync-local/run"
     owner: root
-    mode: 0744
+    mode: 0755
+
+- name: Install daemontools logging for sync-local
+  become: true
+  vars:
+    command: "setuidgid {{user}} multilog t ./main"
+  template:
+    src: service-skeleton.j2
+    dest: "/etc/service/sync-local/log/run"
+    owner: "{{user}}"
+    mode: 0755
 
 - name: "Start sync-local" 
   become: true
-  service:
+  svc:
     name: sync-local
     enabled: yes
-    state: started
+    state: restarted
+    service_dir: "/etc/service/sync-local"
 
-- name: Install trough-write init.d shell script
+- name: Install trough-write supervised by daemontools in /etc/service
   become: true
   vars:
-    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "--http :{{write_port}} --daemonize=/var/log/$NAME.log --uid=trough --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --pidfile=$PIDFILE --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
-    service_name: trough-write
-    service_description: Trough Write Server
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
   template:
-    src: initd-skeleton.j2
-    dest: "/etc/init.d/trough-write"
+    src: service-skeleton.j2
+    dest: "/etc/service/trough-write/run"
     owner: root
-    mode: 0744
+    mode: 0755
+
+- name: Install daemontools logging for trough-write
+  become: true
+  vars:
+    command: "setuidgid {{user}} multilog t ./main"
+  template:
+    src: service-skeleton.j2
+    dest: "/etc/service/trough-write/log/run"
+    owner: "{{user}}"
+    mode: 0755
 
 - name: Start trough-write
   become: true
-  service:
+  svc:
     name: trough-write
     enabled: yes
-    state: started
+    state: restarted
+    service_dir: "/etc/service/trough-write"
 
-- name: Install trough-read init.d shell script
+- name: Install trough-read supervised by daemontools in /etc/service
   become: true
   vars:
-    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "--http :{{read_port}} --daemonize=/var/log/$NAME.log --uid=trough --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --pidfile=$PIDFILE --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
-    service_name: trough-read
-    service_description: Trough Read Server
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
   template:
-    src: initd-skeleton.j2
-    dest: "/etc/init.d/trough-read"
+    src: service-skeleton.j2
+    dest: "/etc/service/trough-read/run"
     owner: root
-    mode: 0744
+    mode: 0755
+
+- name: Install daemontools logging for trough-read
+  become: true
+  vars:
+    command: "setuidgid {{user}} multilog t ./main"
+  template:
+    src: service-skeleton.j2
+    dest: "/etc/service/trough-read/log/run"
+    owner: "{{user}}"
+    mode: 0755
 
 - name: Start trough-read
   become: true
-  service:
+  svc:
     name: trough-read
     enabled: yes
     state: started
+    service_dir: "/etc/service/trough-read"
 
-- name: Install trough-write-provisioner-local init.d shell script
+- name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
   become: true
   vars:
-    daemon: "{{venv_root}}/trough-ve3/bin/uwsgi"
-    daemon_args: "--http :{{sync_port}} --daemonize=/var/log/$NAME.log --uid=trough --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --pidfile=$PIDFILE --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write-provisioner-local.py"
-    service_name: trough-write-provisioner-local
-    service_description: Trough Local Write Provisioner Server
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write-provisioner-local.py"
   template:
-    src: initd-skeleton.j2
-    dest: "/etc/init.d/trough-write-provisioner-local"
+    src: service-skeleton.j2
+    dest: "/etc/service/trough-write-provisioner-local/run"
     owner: root
     mode: 0744
 
+- name: Install daemontools logging for trough-write-provisioner-local
+  become: true
+  vars:
+    command: "setuidgid {{user}} multilog t ./main"
+  template:
+    src: service-skeleton.j2
+    dest: "/etc/service/trough-write-provisioner-local/log/run"
+    owner: "{{user}}"
+    mode: 0755
+
 - name: Start trough-write-provisioner-local
   become: true
-  service:
+  svc:
     name: trough-write-provisioner-local
     enabled: yes
     state: started
+    service_dir: "/etc/service/trough-write-provisioner-local"

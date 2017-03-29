@@ -47,10 +47,11 @@
 
 - name: "Start sync-server" 
   become: true
-  service:
+  svc:
     name: sync-server
     enabled: yes
     state: started
+    service_dir: "/etc/service/sync-server"
 
 - name: Install write-provisioner supervised by daemontools in /etc/service
   become: true
@@ -74,7 +75,8 @@
 
 - name: Start write-provisioner
   become: true
-  service:
+  svc:
     name: write-provisioner
     enabled: yes
     state: started
+    service_dir: "/etc/service/write-provisioner"
