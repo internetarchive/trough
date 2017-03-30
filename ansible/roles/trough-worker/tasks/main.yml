@@ -16,11 +16,11 @@
     group: bin
     mode: 0775
 
-- name: Ensure daemontools logging structure is in place
+- name: Ensure /var/log logging files are in place
   become: true
   file:
-    path: "/etc/service/{{item}}/log/main"
-    state: directory
+    path: "/var/log/{{item}}.log"
+    state: touch
     owner: "{{user}}"
   with_items:
     - sync-local
@@ -40,21 +40,11 @@
 - name: Install sync-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{ venv_root }}/trough-ve3/bin/sync.py"
+    command: "{{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/sync-local.log"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/sync-local/run"
     owner: root
-    mode: 0755
-
-- name: Install daemontools logging for sync-local
-  become: true
-  vars:
-    command: "setuidgid {{user}} multilog t ./main"
-  template:
-    src: service-skeleton.j2
-    dest: "/etc/service/sync-local/log/run"
-    owner: "{{user}}"
     mode: 0755
 
 - name: "Start sync-local" 
@@ -68,21 +58,11 @@
 - name: Install trough-write supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-write.log --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-write/run"
     owner: root
-    mode: 0755
-
-- name: Install daemontools logging for trough-write
-  become: true
-  vars:
-    command: "setuidgid {{user}} multilog t ./main"
-  template:
-    src: service-skeleton.j2
-    dest: "/etc/service/trough-write/log/run"
-    owner: "{{user}}"
     mode: 0755
 
 - name: Start trough-write
@@ -96,22 +76,13 @@
 - name: Install trough-read supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-read.log --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-read/run"
     owner: root
     mode: 0755
 
-- name: Install daemontools logging for trough-read
-  become: true
-  vars:
-    command: "setuidgid {{user}} multilog t ./main"
-  template:
-    src: service-skeleton.j2
-    dest: "/etc/service/trough-read/log/run"
-    owner: "{{user}}"
-    mode: 0755
 
 - name: Start trough-read
   become: true
@@ -124,7 +95,7 @@
 - name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write-provisioner-local.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-write-provisioner-local.log --wsgi-file {{venv_root}}/trough-ve3/bin/write-provisioner-local.py"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-write-provisioner-local/run"

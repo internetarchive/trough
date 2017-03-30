@@ -16,16 +16,16 @@
     group: bin
     mode: 0775
 
-- name: Ensure daemontools logging structure is in place
+- name: Ensure /var/log logging files are in place
   become: true
   file:
-    path: "/etc/service/{{item}}/log/main"
-    state: directory
+    path: "/var/log/{{item}}.log"
+    state: touch
     owner: "{{user}}"
   with_items:
     - sync-server
     - write-provisioner
-    
+
 - name: Install Trough
   become: true
   become_user: "{{user}}"
@@ -38,21 +38,11 @@
 - name: Install sync-server supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{ venv_root }}/trough-ve3/bin/sync.py --server"
+    command: "{{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/sync-server.log"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/sync-server"
     owner: root
-    mode: 0755
-
-- name: Install daemontools logging for sync-server
-  become: true
-  vars:
-    command: "setuidgid {{user}} multilog t ./main"
-  template:
-    src: service-skeleton.j2
-    dest: "/etc/service/sync-server/log/run"
-    owner: "{{user}}"
     mode: 0755
 
 - name: "Start sync-server" 
@@ -66,21 +56,11 @@
 - name: Install write-provisioner supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/ --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/write-provisioner"
     owner: root
-    mode: 0755
-
-- name: Install daemontools logging for write-provisioner
-  become: true
-  vars:
-    command: "setuidgid {{user}} multilog t ./main"
-  template:
-    src: service-skeleton.j2
-    dest: "/etc/service/write-provisioner/log/run"
-    owner: "{{user}}"
     mode: 0755
 
 - name: Start write-provisioner
