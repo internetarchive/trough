@@ -40,7 +40,7 @@
 - name: Install sync-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{ venv_root }}/trough-ve3/trough/sync.py"
+    command: "{{ venv_root }}/trough-ve3/bin/sync.py"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/sync-local/run"
