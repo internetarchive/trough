@@ -41,7 +41,7 @@
     command: "{{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/sync-server.log 2>&1"
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/sync-server"
+    dest: "/etc/service/sync-server/run"
     owner: root
     mode: 0755
 
@@ -59,7 +59,7 @@
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/ --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/write-provisioner"
+    dest: "/etc/service/write-provisioner/run"
     owner: root
     mode: 0755
 
