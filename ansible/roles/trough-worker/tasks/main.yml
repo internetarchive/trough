@@ -28,6 +28,18 @@
     - trough-read
     - trough-write-provisioner-local
 
+- name: Ensure daemontools service directories are in place
+  become: true
+  file:
+    path: "/etc/service/{{item}}"
+    state: directory
+    owner: root
+  with_items:
+    - sync-local
+    - trough-write
+    - trough-read
+    - trough-write-provisioner-local
+
 - name: Install Trough
   become: true
   become_user: "{{user}}"
