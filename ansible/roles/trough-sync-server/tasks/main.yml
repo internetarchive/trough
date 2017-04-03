@@ -26,6 +26,16 @@
     - sync-server
     - write-provisioner
 
+- name: Ensure daemontools service directories are in place
+  become: true
+  file:
+    path: "/etc/service/{{item}}"
+    state: directory
+    owner: root
+  with_items:
+    - sync-server
+    - write-provisioner
+
 - name: Install Trough
   become: true
   become_user: "{{user}}"
