@@ -2,8 +2,8 @@
   become_user: root
   become: true
   vars:
-    begin_port: 8300
-    end_port: 8302
+    begin_port: 6300
+    end_port: 6600
   template:
     src: templates/open-ports.ferm.j2
     dest: /etc/ferm/input/cluster.consul.ports
