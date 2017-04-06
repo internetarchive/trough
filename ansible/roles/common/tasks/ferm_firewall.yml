@@ -8,6 +8,15 @@
     src: templates/open-ports.ferm.j2
     dest: /etc/ferm/input/cluster.consul.ports
 
+- name: Open Consul DNS ports
+  become_user: root
+  become: true
+  vars:
+    port: 53
+  template:
+    src: templates/open-dns-port.ferm.j2
+    dest: /etc/ferm/input/cluster.consul.dns.port
+
 - name: Open Trough firewall ports
   become_user: root
   become: true
