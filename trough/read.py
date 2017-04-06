@@ -28,7 +28,7 @@ class ReadServer:
         # if the user sent more than one query, or the query is not a SELECT, raise an exception.
         if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
             raise Exception('Exactly one SELECT query per request, please.')
-        connection = sqlite3.connect(segment.segment_path())
+        connection = sqlite3.connect(segment.local_path())
         cursor = connection.cursor()
         first = True
         try:
@@ -53,7 +53,7 @@ class ReadServer:
             segment_id = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
             consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
             registry = trough.sync.HostRegistry(consul=consul)
-            segment = trough.sync.Segment(segment_id=segment_id)
+            segment = trough.sync.Segment(consul=consul, segment_id=segment_id, size=0, registry=registry)
             query = env.get('wsgi.input').read()
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['Node'] != settings['HOSTNAME']:
