@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import trough
 from trough.settings import settings
+import logging
 
 if __name__ == '__main__':
     import argparse
