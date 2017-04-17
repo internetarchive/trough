@@ -1,3 +1,0 @@
-- name: ansible-consul
-  src: https://github.com/jkafader/ansible-consul.git
-  version: aaed105ab761839b0ff23b4430bcc56eb2ca7122
