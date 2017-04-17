@@ -12,6 +12,11 @@
     consul_serf_wan_port: 6302
     consul_serf_lan_port: 6301
     consul_server_port: 6300
+    consul_iptables_enable: yes
+    consul_recursors: 
+      - 207.241.224.9
+      - 207.241.229.119
+      - 8.8.8.8
   roles:
     - common
     - ansible-consul
