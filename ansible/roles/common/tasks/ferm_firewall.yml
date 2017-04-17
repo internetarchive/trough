@@ -12,7 +12,8 @@
   become_user: root
   become: true
   vars:
-    port: 53
+    dns_port: 53
+    consul_dns_port: 6600
   template:
     src: templates/open-dns-port.ferm.j2
     dest: /etc/ferm/input/cluster.consul.dns.port
