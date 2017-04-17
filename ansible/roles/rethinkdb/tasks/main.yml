@@ -3,7 +3,7 @@
   apt_key: url=http://download.rethinkdb.com/apt/pubkey.gpg
   become: true
 - name: ensure rethinkdb repo is in apt sources.list
-  apt_repository: repo='deb http://download.rethinkdb.com/apt trusty main'
+  apt_repository: repo='deb http://download.rethinkdb.com/apt xenial main'
                   state=present
   become: true
 - apt: update_cache=yes
@@ -22,8 +22,8 @@
   when: not p.stat.exists
   become: true
 - name: ensure rethinkdb instance config file is installed
-  template: src=templates/rethinkdb-brozzler.conf.j2
-            dest=/etc/rethinkdb/instances.d/rethinkdb-brozzler.conf
+  template: src=templates/rethinkdb-trough.conf.j2
+            dest=/etc/rethinkdb/instances.d/rethinkdb-trough.conf
   become: true
   notify:
   - restart rethinkdb
