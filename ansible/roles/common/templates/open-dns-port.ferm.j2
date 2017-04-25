@@ -4,7 +4,6 @@ saddr $CLUSTER proto (tcp udp) dport {{dns_port}} ACCEPT;
 @def &DNS_REDIRECT($port, $redir) = {
     table filter chain FORWARD saddr $CLUSTER proto (tcp udp) dport $port ACCEPT;
     table nat chain PREROUTING saddr $CLUSTER proto (tcp udp) dport $port REDIRECT to-ports $redir;
-    table nat chain OUTPUT daddr localhost proto (tcp udp) dport $port REDIRECT to-ports $redir;
 }
 
 &DNS_REDIRECT({{dns_port}}, {{consul_dns_port}});

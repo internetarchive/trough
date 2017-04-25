@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging
-import consulate
+import doublethink
+import rethinkdb as r
 from trough.settings import settings
 from snakebite.client import Client
 import socket
@@ -14,6 +15,62 @@ import requests
 import datetime
 import sqlite3
 
+class Assignment(doublethink.Document):
+    def populate_defaults(self):
+        if not "id" in self:
+            self.id = "{host}:{segment}".format(host=self.host, segment=self.segment)
+    def table_create(self, *args, **kwargs):
+        super().create_table(self, *args, **kwargs)
+        rr.table(self.table).indexCreate('segment')
+        rr.table(self.table).indexWait('segment')
+    def unassign(self):
+        return rr.table(cls.table).get(self.id).delete()
+    @classmethod
+    def host_assignments(cls, rr, host):
+        return rr.table(cls.table).between('%s:\x00' % host, '%s:\xff' % host).run()
+    @classmethod
+    def segment_assignments(cls, rr, segment):
+        return rr.table(cls.table).get_all(segment, {index: "segment"}).run()
+
+class Lock(doublethink.Document):
+    @classmethod
+    def acquire(cls, rr, pk, document={}):
+        document["pk"] = pk
+        document["acquired_on"] = r.now()
+        try:
+            rr.table(cls.table).insert(document)
+        except Exception as e:
+            raise LockException('Unable to acquire a lock for %s' % pk)
+        return cls(rr, d=document)
+    def release(self):
+        return self.rr.table(self.table, read_mode='majority').get(self.pk).delete()
+
+# # create Assignments
+# asmt = Assignment(rr, d={ 
+#     'host': 'wbgrp-svc111',
+#     'segment': '183999',
+#     'assigned_on': r.now(),
+#     'remote_path': '/ait/qa/trough/183999.sqlite',
+#     'local_path': '/var/tmp/trough/segments/183999.sqlite',
+#     'bytes': 18982891 })
+# asmt.save()
+
+# # create a Lock
+# lock = Lock.acquire(rr, pk='write/lock/%s' % segment_id, document={})
+# # get lock info
+# lock = Lock.load(rr, pk='write/lock/%s' % segment_id)
+# # delete/release lock
+# lock.release(rr, pk='write/lock/%s' % segment_id)
+
+# # initialize service registry (this will get passed around)
+# svcreg = doublethink.ServiceRegistry(Rethinker(db='trough_configuration'))
+# # register a service
+# svcreg.heartbeat({ "role": "183999.trough-read", "port": 6444, "load": 0.1, "heartbeat_interval": 20 })
+# # hold a leader election
+# svcreg.leader('trough-sync-master', default={ "port": 6111, "heartbeat_interval": 20 })
+# # look up a leader
+# svcreg.leader('trough-sync-master')
+
 class Segment(object):
     def __init__(self, consul, segment_id, size, registry):
         self.consul = consul
@@ -21,17 +78,18 @@ class Segment(object):
         self.size = int(size)
         self.registry = registry
     def host_key(self, host):
-        return "%s/%s" % (host, self.id)
+        return "%s:%s" % (host, self.id)
     def all_copies(self, full_record=False):
+        ''' TODO: must return a set of Assignments, to support .unassign, below '''
         ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
         assignments = []
         for host in self.registry.get_hosts():
             # then for each host, we'll check the k/v store
             record = None
             if full_record:
-                record = self.consul.kv.get_record(self.host_key(host['Node']))
-            elif self.consul.kv.get(self.host_key(host['Node'])):
-                record = self.host_key(host['Node'])
+                record = self.consul.kv.get_record(self.host_key(host['node']))
+            elif self.consul.kv.get(self.host_key(host['node'])):
+                record = self.host_key(host['node'])
             if record:
                 assignments.append(record)
         return assignments
@@ -54,7 +112,7 @@ class Segment(object):
         lock_key = 'write/locks/%s' % self.id
         if self.consul.kv.get(lock_key):
             raise Exception('Segment is already locked.')
-        lock_data = {'Node': host, 'Datestamp': datetime.datetime.now().isoformat() }
+        lock_data = {'node': host, 'Datestamp': datetime.datetime.now().isoformat() }
         self.consul.kv[lock_key] = json.dumps(lock_data)
         return lock_data
     def retrieve_write_lock(self):
@@ -80,23 +138,29 @@ class Segment(object):
         connection.close()
 
 class HostRegistry(object):
-    ''' this should probably implement all of the 'host' oriented functions below. '''
-    def __init__(self, consul):
-        self.consul = consul
+    ''''''
+    def __init__(self, rethinker, services):
+        self.rethinker = rethinker
+        self.services = services
     def get_hosts(self):
-        return self.consul.catalog.service('trough-nodes')
+        return self.services.available_services('trough-nodes')
     def hosts_exist(self):
         output = bool(self.get_hosts())
         logging.debug("Looking for hosts. Found: %s" % output)
         return output
+    def total_bytes_for_node(self, node):
+        for service in self.services.available_services('trough-nodes'):
+            if service.node == node:
+                return service.available_bytes
+        return 0
     def host_load(self):
         output = []
         for host in self.get_hosts():
-            assigned_bytes = sum([int(value) for value in self.consul.kv.find('%s/' % host['Node']).values()])
-            total_bytes = self.consul.kv.get("%s" % host['Node'])
+            assigned_bytes = sum([assignment.size for assignment in Assignment.host_assignments(self.rethinker, host['node'])])
+            total_bytes = self.total_bytes_for_node(host['node'])
             total_bytes = 0 if total_bytes in ['null', None] else int(total_bytes)
             output.append({
-                'Node': host['Node'],
+                'node': host['node'],
                 'remaining_bytes': total_bytes - assigned_bytes,
                 'assigned_bytes': assigned_bytes,
                 'total_bytes': total_bytes,
@@ -116,59 +180,40 @@ class HostRegistry(object):
         acceptable_load_deviation = min((largest_segment_size / average_capacity), average_load_ratio)
         min_acceptable_load = average_load_ratio - acceptable_load_deviation
         return min_acceptable_load
-    def host_is_registered(self, host):
-        logging.info('Checking if "%s" is registered.' % host)
-        for registered_host in self.get_hosts():
-            if registered_host['Node'] == host:
-                logging.info('Found that "%s" is registered.' % host)
-                return True
-        return False
-    def register(self, name, service_id, address=settings['EXTERNAL_IP'], \
-            port=settings['READ_PORT'], tags=[], ttl=str(settings['READ_NODE_DNS_TTL']) + 's'):
-        if type(ttl) == int:
-            ttl = "%ss" % ttl
-        logging.info('Registering: name[%s] service_id[%s] at /v1/catalog/service/%s on IP %s:%s with TTL %s' % (name, service_id, service_id, address, port, ttl))
-        self.consul.agent.service.register(name, service_id=service_id, address=address, port=port, tags=tags, ttl=ttl)
-    def deregister(self, name, service_id):
-        logging.info('Deregistering: name[%s] service_id[%s] at /v1/catalog/service/%s' % (name, service_id, service_id))
-        self.consul.agent.service.deregister(service_id=service_id)
-    def reset_health_check(self, pool, service_name):
-        logging.info('Updating health check for pool: "%s", service_name: "%s".' % (pool, service_name))
-        return self.consul.agent.check.ttl_pass("service:trough/%s/%s" % (pool, service_name))
+    def heartbeat(self, pool=None, node=None, heartbeat_interval=None, **doc):
+        if None in [pool, node, heartbeat_interval]:
+            raise Exception('"pool", "node" and "heartbeat_interval" are required arguments.')
+        doc['role'] = pool
+        doc['node'] = node
+        doc['heartbeat_interval'] = heartbeat_interval
+        logging.info('Registering: role[%s] node[%s] at IP %s:%s with TTL %s' % (pool, node, service_id, address, doc.get('port'), ttl))
+        self.services.heartbeat(doc)
     def assign(self, hostname, segment):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
-        logging.info('Setting key "%s" to "%s"' % (segment.host_key(hostname), segment.size))
-        self.consul.kv[segment.host_key(hostname)] = segment.size
-    def unassign(self, hostname, segment):
-        logging.info("Unassigning segment: %s on '%s'" % (segment, hostname))
-        del self.consul.kv[segment.host_key(hostname)]
-    def set_quota(self, host, quota):
-        logging.info('Setting quota for host "%s": %s bytes.' % (host, quota))
-        self.consul.kv[host] = quota
+        asmt = Assignment(rr, d={ 
+            'host': hostname,
+            'segment': segment.id,
+            'assigned_on': r.now(),
+            'remote_path': segment.remote_path,
+            'bytes': segment.size })
+        logging.info('Adding "%s" to rethinkdb.' % (asmt))
+        asmt.save()
     def segments_for_host(self, host):
-        segments = [Segment(consul=self.consul, segment_id=k.split('/')[-1], size=v, registry=self) for k, v in self.consul.kv.find("%s/" % host).items()]
+        segments = Assignment.host_assignments(self.rethinker, host)
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
 
 # Base class, not intended for use.
 class SyncController:
-    def __init__(self, consul=None, registry=None, snakebite_client=None):
-        self.consul = consul
+    def __init__(self, rethinker=None, services=None, registry=None, snakebite_client=None):
+        self.rethinker = rethinker
+        self.services = services
         self.registry = registry
         self.snakebite_client = snakebite_client
         self.leader = False
         self.found_hosts = False
     def check_config(self):
         raise Exception('Not Implemented')
-    def check_consul_health(self):
-        try:
-            random.seed(settings['HOSTNAME'])
-            random_key = ''.join(random.choice(string.ascii_uppercase + string.digits) for i in range(10))
-            logging.error("Inserting random key '%s' into consul's key/value store as a health check." % (random_key,))
-            self.consul.kv[random_key] = True
-            del self.consul.kv[random_key]
-        except Exception as e:
-            sys.exit('Unable to connect to consul. Exiting to prevent running in a bad state.')
     def get_segment_file_list(self):
         logging.info('Getting segment list...')
         return self.snakebite_client.ls([settings['HDFS_PATH']])
@@ -196,25 +241,17 @@ class MasterSyncController(SyncController):
 
     def hold_election(self):
         logging.info('Holding Sync Master Election...')
-        sync_master_hosts = self.registry.consul.catalog.service('trough-sync-master')
-        if sync_master_hosts:
-            if sync_master_hosts[0]['Node'] == settings['HOSTNAME']:
-                # 'touch' the ttl check for sync master
-                logging.info('Still the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
-                self.registry.reset_health_check(pool='sync', service_name='master')
-                return True
-            logging.info('I am not the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
-            return False
-        else:
-            logging.info('There is no "trough-sync-master" service in consul. I am the master.')
-            logging.info('Setting up master service...')
-            self.registry.register('trough-sync-master',
-                service_id='trough/sync/master',
-                port=settings['SYNC_PORT'],
-                tags=['master'],
-                ttl=settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2)
-            self.registry.reset_health_check(pool='sync', service_name='master')
+        candidate = { 'node': settings['HOSTNAME'] }
+        sync_master = self.services.leader('trough-sync-master', default=candidate)
+        if sync_master.node == settings['HOSTNAME']:
+            # 'touch' the ttl check for sync master
+            logging.info('Still the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
+            self.registry.heartbeat(pool='trough-sync-master',
+                node=settings['HOSTNAME'],
+                heartbeat_interval=settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2)
             return True
+        logging.info('I am not the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
+        return False
 
     def wait_to_become_leader(self):
         # hold an election every settings['ELECTION_CYCLE'] seconds
@@ -235,34 +272,35 @@ class MasterSyncController(SyncController):
         for file in self.get_segment_file_list():
             local_part = file['path'].split('/')[-1]
             local_part = local_part.replace('.sqlite', '')
-            segment = Segment(consul=self.consul, segment_id=local_part, size=file['length'], registry=self.registry)
+            segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=0)
             if not len(segment.all_copies()) >= segment.minimum_assignments():
                 emptiest_host = sorted(self.registry.host_load(), key=lambda host: host['assigned_bytes'])[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
-                self.registry.assign(emptiest_host['Node'], segment)
+                self.registry.assign(emptiest_host['node'], segment)
             else:
                 # If we find too many 'up' copies
                 if len(segment.readable_copies()) > segment.minimum_assignments():
-                    # delete the copy with the lowest 'CreateIndex', which records the
-                    # order in which keys are created.
-                    assignments = segment.all_copies(full_record=True)
-                    assignments = sorted(assignments, key=lambda record: record['CreateIndex'])
-                    host = assignments[0].split("/")[0]
+                    # delete the copy with the lowest 'assigned_on', which records the
+                    # date on which assignments are created.
+                    assignments = segment.all_copies()
+                    assignments = sorted(assignments, key=lambda record: record['assigned_on'])
                     # remove the assignment
-                    self.registry.unassign(host, segment)
+                    assignments[0].unassign()
             writable_copies = segment.writable_copies()
             if writable_copies:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the read-only copy from HDFS." % segment.id)
-                self.decommission_writable_segment(segment)
+                self.decommission_writable_segment(writable_copies[0].get('id'))
 
     def rebalance_hosts(self):
         logging.info('Rebalancing Hosts...')
+        # TODO: ensure this works the same way: host_load
         hosts = self.registry.host_load()
         largest_segment_size = 0
         segment_file_list = self.get_segment_file_list()
         for segment in segment_file_list:
             if segment['length'] > largest_segment_size:
                 largest_segment_size = segment['length']
+        # TODO: ensure this works the same way: min_acceptable_load_ratio
         min_acceptable_load = self.registry.min_acceptable_load_ratio(hosts, largest_segment_size)
         # filter out any hosts that have very little free space *and* are underloaded. They can't be fixed, most likely.
         nonfull_nonunderloaded_hosts = [host for host in hosts if not (host['load_ratio'] < min_acceptable_load and host['remaining_bytes'] <= largest_segment_size)]
@@ -270,31 +308,35 @@ class MasterSyncController(SyncController):
         sorted_hosts = sorted(nonfull_nonunderloaded_hosts, key=lambda host: host['load_ratio'], reverse=True)
         queue = []
         assignment_cache = {}
-        size_lookup = {}
         last_reassignment = None
         while sorted_hosts[-1]['load_ratio'] < min_acceptable_load and len(sorted_hosts) >= 2:
             # get the top-loaded host
             top_host = sorted_hosts[0]
             underloaded_host = sorted_hosts[-1]
             # if we haven't seen this host before, cache a list of its segments
-            if top_host['Node'] not in assignment_cache:
-                assignment_cache[top_host['Node']] = self.consul.kv.find("%s/" % top_host['Node'], separator='-')
+            if top_host['node'] not in assignment_cache:
+                assignment_cache[top_host['node']] = Assignment.host_assignments(self.rethinker, top_host['node'])
                 # shuffle segment order so when we .pop() it selects a random segment.
-                random.shuffle(assignment_cache[top_host['Node']])
+                random.shuffle(assignment_cache[top_host['node']])
             # pick a segment assigned to the top-loaded host
-            reassign_from = assignment_cache[top_host['Node']].pop()
-            segment_name = reassign_from.split("/")[1]
-            reassign_to = "%s/%s" % (underloaded_host['Node'], segment_name)
+            reassign_from = assignment_cache[top_host['node']].pop()
+            segment_name = reassign_from.segment
+            reassign_to = Assignment(rr, d={
+                'host': underloaded_host['node'],
+                'segment': reassign_from.segment,
+                'assigned_on': r.now(),
+                'remote_path': reassign_from.remote_path,
+                'bytes': reassign_from.bytes })
             reassignment = (reassign_from, reassign_to)
-            segment_bytes = self.consul.kv[reassign_from]
+            segment_bytes = reassign_from.bytes
             # if our last reassignment is the same as the current reassignment, there's only one segment on this host. Pop it.
             if reassign_from == last_reassignment:
                 hosts.pop(0)
                 continue
             last_reassignment = reassign_from
             # if this segment is already assigned to the bottom loaded host, put it back in at the top of the list and loop.
-            if self.consul.kv.get(reassign_to):
-                assignment_cache[top_host['Node']].insert(0, reassign_from)
+            if Assignment.load("%s:%s" % reassign_to.host, reassign_to.segment):
+                assignment_cache[top_host['node']].insert(0, reassign_from)
                 continue
             # enqueue segment
             queue.append(reassignment)
@@ -305,11 +347,10 @@ class MasterSyncController(SyncController):
             underloaded_host['assigned_bytes'] += segment_bytes
             underloaded_host['remaining_bytes'] -= segment_bytes
             underloaded_host['load_ratio'] = underloaded_host['assigned_bytes'] / underloaded_host['total_bytes']
-            size_lookup[reassign_from] = segment_bytes
             sorted_hosts.sort(key=lambda host: host['load_ratio'], reverse=True)
         # perform the queued reassignments. We set a key value pair in consul to assign.
         for reassignment in queue:
-            self.consul.kv[reassignment[1]] = size_lookup[reassignment[0]]
+            reassignment[1].save()
 
     def sync(self):
         ''' 
@@ -328,8 +369,6 @@ class MasterSyncController(SyncController):
                 - add extra assignments to the "too empty" host in a ratio of segments which corresponds to the delta from the average load.
         '''
         self.found_hosts = False
-        # make sure consul is running. If not, die.
-        self.check_consul_health()
         # loops indefinitely waiting to become leader.
         self.wait_to_become_leader()
         # loops indefinitely waiting for hosts to hosts to which to assign segments
@@ -341,10 +380,7 @@ class MasterSyncController(SyncController):
 
     def wait_for_write_lock(self, segment_id):
         while not lock:
-            try:
-                lock = self.consul.lock.acquire("master/%s" % segment_id)
-            except consulate.exceptions.LockException as e:
-                pass
+            lock = Lock.acquire(self.rethinker, pk='master/%s' % segment_id)
         return lock
 
     def provision_writable_segment(self, segment_id):
@@ -353,8 +389,11 @@ class MasterSyncController(SyncController):
         # if not my hostname, raise exception
         # acquire a lock for the process of provisioning
         # with lock:
-        with self.wait_for_write_lock():
-            segment = Segment(segment_id=segment_id, consul=self.consul, registry=self.registry)
+        with lock = self.wait_for_write_lock():
+            segment = Segment(segment_id=segment_id,
+                rethinker=self.rethinker,
+                services=self.services,
+                registry=self.registry, size=0)
             writable_copies = segment.writable_copies()
             readable_copies = segment.readable_copies()
             # if the requested segment has no writable copies:
@@ -365,18 +404,21 @@ class MasterSyncController(SyncController):
                 post_url = 'http://%s:%s/' % (assigned_host, settings['SYNC_PORT'])
                 requests.post(post_url, segment_id)
                 # create a new consul service
-                self.registry.register("trough-write-segments", service_id='trough/write/%s' % segment_id, tags=[segment_id])
+                self.registry.heartbeat(pool='trough-write',
+                    segment=segment_id,
+                    node=assigned_host,
+                    port=settings['WRITE_PORT']
+                    heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
             else:
                 assigned_host = writable_copies[0]
+        # explicitly release provisioning lock (do nothing)
+        lock.release()
         # return an http endpoint for POSTs
-        return "http://%s.trough-write-segments.service.consul/" % (segment_id, )
-        # implicitly release provisioning lock
+        return "http://%s:%s/?segment=%s" % (assigned_host, settings['WRITE_PORT'], segment_id)
 
-    def decommission_writable_segment(self, segment):
-        logging.info('De-commissioning a writable segment: %s' % segment.id)
-        self.registry.deregister(name="trough-write-segments", service_id='trough/write/%s' % segment.id)
-
-
+    def decommission_writable_segment(self, service_id):
+        logging.info('De-commissioning a writable segment: %s' % service_id)
+        self.services.unregister(service_id)
 
 # Local mode synchronizer.
 class LocalSyncController(SyncController):
@@ -420,15 +462,14 @@ class LocalSyncController(SyncController):
             logging.info('copied %s' % f)
             return True
 
-    def ensure_registered(self):
-        if not self.registry.host_is_registered(self.hostname):
-            logging.warning('I am not registered. Registering myself as "%s".' % self.hostname)
-            self.registry.register('trough-nodes', service_id='trough/nodes/%s' % self.hostname, tags=[self.hostname], ttl=round(settings['SYNC_LOOP_TIMING'] * 2))
-
-    def reset_health_check(self):
+    def heartbeat(self):
         logging.warning('Updating health check for "%s".' % self.hostname)
         # reset the countdown
-        self.registry.reset_health_check('nodes', self.hostname)
+        self.registry.heartbeat(pool='trough-nodes',
+            node=self.hostname,
+            heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2),
+            available_bytes=settings['STORAGE_IN_BYTES']
+        )
 
     def sync_segments(self):
         segment_health_ttl = settings['SYNC_LOOP_TIMING'] * 2
@@ -438,12 +479,18 @@ class LocalSyncController(SyncController):
             if not exists or not matches_hdfs:
                 self.copy_segment_from_hdfs(segment)
             logging.info('registering segment %s...' % (segment.id))
-            self.registry.register('trough-read-segments', service_id='trough/read/%s' % segment.id, tags=[segment.id], ttl=segment_health_ttl)
-            self.registry.reset_health_check('read', segment.id)
+            self.registry.heartbeat(pool='trough-read',
+                segment=segment.id,
+                node=self.hostname,
+                heartbeat_interval=segment_health_ttl)
 
     def provision_writable_segment(self, segment_id):
         # instantiate the segment
-        segment = Segment(segment_id=segment_id, consul=self.consul, registry=self.registry, size=None)
+        segment = Segment(segment_id=segment_id,
+            rethinker=self.rethinker,
+            services=self.services,
+            registry=self.registry,
+            size=0)
         # get the current write lock if any
         lock_data = segment.retrieve_write_lock()
         if not lock_data:
@@ -472,33 +519,33 @@ class LocalSyncController(SyncController):
         - end 'timer'
         - set up a health check (TTL) for myself, 2 * 'timer'
         '''
-        # make sure consul is up and running.
-        self.check_consul_health()
-        # ensure that I am registered in consul, and set up a TTL health check.
-        self.ensure_registered()
-        # reset the TTL health check for this node. I am still alive!
-        self.reset_health_check()
-        # set my quota
-        self.registry.set_quota(self.hostname, settings['STORAGE_IN_BYTES'])
+        # reset the TTL health check for this node. I still function!
+        self.heartbeat()
         # sync my local segments with HDFS
         self.sync_segments()
 
 def get_controller(server_mode):
     logging.info('Connecting to Consul for on: %s:%s' % (settings['CONSUL_ADDRESS'], settings['CONSUL_PORT']))
-    consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
-    registry = HostRegistry(consul=consul)
+    rethinker = doublethink.Rethinker(db="trough_configuration")
+    services = doublethink.ServiceRegistry(rethinker)
+    registry = HostRegistry(rethinker=rethinker, services=services)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
     snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    # ... later ('rr' will need to get passed around)
+    Assignment.table_ensure(rethinker)
+    Lock.table_ensure(rethinker)
 
     if server_mode:
         controller = MasterSyncController(
+            rethinker=rethinker,
+            services=services,
             registry=registry,
-            consul=consul,
             snakebite_client=snakebite_client)
     else:
         controller = LocalSyncController(
+            rethinker=rethinker,
+            services=services,
             registry=registry,
-            consul=consul,
             snakebite_client=snakebite_client)
 
     return controller
