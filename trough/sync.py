@@ -22,14 +22,14 @@ class Assignment(doublethink.Document):
     @classmethod
     def table_create(cls, rr):
         rr.table_create(cls.table).run()
-        rr.table(cls.table).index_create('segment')
-        rr.table(cls.table).index_wait('segment')
+        rr.table(cls.table).index_create('segment').run()
+        rr.table(cls.table).index_wait('segment').run()
     @classmethod
     def host_assignments(cls, rr, host):
         return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).between('%s:\x01' % host, '%s:\x7f' % host, right_bound="closed").run())
     @classmethod
     def segment_assignments(cls, rr, segment):
-        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, {index: "segment"}).run())
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, index="segment").run())
     def unassign(self):
         return rr.table(self.table).get(self.id).delete()
 
@@ -46,37 +46,13 @@ class Lock(doublethink.Document):
     def release(self):
         return self.rr.table(self.table, read_mode='majority').get(self.pk).delete()
 
-# # create Assignments
-# asmt = Assignment(rr, d={ 
-#     'host': 'wbgrp-svc111',
-#     'segment': '183999',
-#     'assigned_on': r.now(),
-#     'remote_path': '/ait/qa/trough/183999.sqlite',
-#     'bytes': 18982891 })
-# asmt.save()
-
-# # create a Lock
-# lock = Lock.acquire(rr, pk='write/lock/%s' % segment_id, document={})
-# # get lock info
-# lock = Lock.load(rr, pk='write/lock/%s' % segment_id)
-# # delete/release lock
-# lock.release(rr, pk='write/lock/%s' % segment_id)
-
-# # initialize service registry (this will get passed around)
-# svcreg = doublethink.ServiceRegistry(Rethinker(db='trough_configuration'))
-# # register a service
-# svcreg.heartbeat({ "role": "183999.trough-read", "port": 6444, "load": 0.1, "heartbeat_interval": 20 })
-# # hold a leader election
-# svcreg.leader('trough-sync-master', default={ "port": 6111, "heartbeat_interval": 20 })
-# # look up a leader
-# svcreg.leader('trough-sync-master')
-
 class Segment(object):
-    def __init__(self, rethinker, segment_id, size, registry):
+    def __init__(self, segment_id, size, rethinker, services, registry):
         self.id = segment_id
         self.size = int(size)
-        self.registry = registry
         self.rethinker = rethinker
+        self.services = services
+        self.registry = registry
     def host_key(self, host):
         return "%s:%s" % (host, self.id)
     def all_copies(self):
@@ -89,7 +65,7 @@ class Segment(object):
         '''returns the 'up' copies of this segment to write to, per consul.'''
         return (copy for copy in self.services.available_services('trough-write') if copy.segment == self.id)
     def is_assigned_to_host(self, host):
-        return bool(Assignment.load(self.host_key(host)))
+        return bool(Assignment.load(self.rethinker, self.host_key(host)))
     def minimum_assignments(self):
         '''This function should return the minimum number of assignments which is acceptable for a given segment.'''
         if hasattr(settings['MINIMUM_ASSIGNMENTS'], "__call__"):
@@ -98,14 +74,14 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS']
     def acquire_write_lock(self, host):
         '''Raises exception if required parameter "host" is not provided. Raises exception if lock exists.'''
-        return Lock.acquire(rr, pk='write:lock:%s' % segment_id, document={})
+        return Lock.acquire(self.rethinker, pk='write:lock:%s' % segment_id, document={})
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
-        return Lock.load(rr, pk='write:lock:%s' % segment_id)
+        return Lock.load(self.rethinker, pk='write:lock:%s' % segment_id)
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def remote_path(self):
-        asmt = Assignment.load(self.host_key(settings['HOSTNAME']))
+        asmt = Assignment.load(self.rethinker, self.host_key(settings['HOSTNAME']))
         if asmt:
             return asmt.remote_path
         return ""
@@ -134,13 +110,13 @@ class HostRegistry(object):
         return output
     def total_bytes_for_node(self, node):
         for service in self.services.available_services('trough-nodes'):
-            if service.node == node:
-                return service.available_bytes
+            if service['node'] == node:
+                return service.get('available_bytes')
         return 0
     def host_load(self):
         output = []
         for host in self.get_hosts():
-            assigned_bytes = sum([assignment.size for assignment in Assignment.host_assignments(self.rethinker, host['node'])])
+            assigned_bytes = sum([assignment.bytes for assignment in Assignment.host_assignments(self.rethinker, host['node'])])
             total_bytes = self.total_bytes_for_node(host['node'])
             total_bytes = 0 if total_bytes in ['null', None] else int(total_bytes)
             output.append({
@@ -170,11 +146,11 @@ class HostRegistry(object):
         doc['role'] = pool
         doc['node'] = node
         doc['heartbeat_interval'] = heartbeat_interval
-        logging.info('Registering: role[%s] node[%s] at IP %s:%s with TTL %s' % (pool, node, service_id, address, doc.get('port'), ttl))
+        logging.info('Registering: role[%s] node[%s] at IP %s:%s with heartbeat interval %s' % (pool, node, node, doc.get('port'), heartbeat_interval))
         self.services.heartbeat(doc)
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
-        asmt = Assignment(rr, d={ 
+        asmt = Assignment(self.rethinker, d={ 
             'host': hostname,
             'segment': segment.id,
             'assigned_on': r.now(),
@@ -183,7 +159,8 @@ class HostRegistry(object):
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
         asmt.save()
     def segments_for_host(self, host):
-        segments = Assignment.host_assignments(self.rethinker, host)
+        assignments = Assignment.host_assignments(self.rethinker, host)
+        segments = [Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self) for asmt in assignments]
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
 
@@ -225,9 +202,9 @@ class MasterSyncController(SyncController):
 
     def hold_election(self):
         logging.info('Holding Sync Master Election...')
-        candidate = { 'node': settings['HOSTNAME'] }
+        candidate = { 'node': settings['HOSTNAME'], "heartbeat_interval": settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2 }
         sync_master = self.services.leader('trough-sync-master', default=candidate)
-        if sync_master.node == settings['HOSTNAME']:
+        if sync_master.get('node') == settings['HOSTNAME']:
             # 'touch' the ttl check for sync master
             logging.info('Still the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
             self.registry.heartbeat(pool='trough-sync-master',
@@ -257,34 +234,32 @@ class MasterSyncController(SyncController):
             local_part = file['path'].split('/')[-1]
             local_part = local_part.replace('.sqlite', '')
             segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=0)
-            if not len(segment.all_copies()) >= segment.minimum_assignments():
+            if not len([1 for cpy in segment.all_copies()]) >= segment.minimum_assignments():
                 emptiest_host = sorted(self.registry.host_load(), key=lambda host: host['assigned_bytes'])[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
                 self.registry.assign(emptiest_host['node'], segment, remote_path=file['path'])
             else:
                 # If we find too many 'up' copies
-                if len(segment.readable_copies()) > segment.minimum_assignments():
+                if len([1 for cpy in segment.readable_copies()]) > segment.minimum_assignments():
                     # delete the copy with the lowest 'assigned_on', which records the
                     # date on which assignments are created.
                     assignments = segment.all_copies()
                     assignments = sorted(assignments, key=lambda record: record['assigned_on'])
                     # remove the assignment
                     assignments[0].unassign()
-            writable_copies = segment.writable_copies()
+            writable_copies = [copy for copy in segment.writable_copies()]
             if writable_copies:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(writable_copies[0].get('id'))
 
     def rebalance_hosts(self):
         logging.info('Rebalancing Hosts...')
-        # TODO: ensure this works the same way: host_load
         hosts = self.registry.host_load()
         largest_segment_size = 0
         segment_file_list = self.get_segment_file_list()
         for segment in segment_file_list:
             if segment['length'] > largest_segment_size:
                 largest_segment_size = segment['length']
-        # TODO: ensure this works the same way: min_acceptable_load_ratio
         min_acceptable_load = self.registry.min_acceptable_load_ratio(hosts, largest_segment_size)
         # filter out any hosts that have very little free space *and* are underloaded. They can't be fixed, most likely.
         nonfull_nonunderloaded_hosts = [host for host in hosts if not (host['load_ratio'] < min_acceptable_load and host['remaining_bytes'] <= largest_segment_size)]
@@ -319,7 +294,7 @@ class MasterSyncController(SyncController):
                 continue
             last_reassignment = reassign_from
             # if this segment is already assigned to the bottom loaded host, put it back in at the top of the list and loop.
-            if Assignment.load("%s:%s" % reassign_to.host, reassign_to.segment):
+            if Assignment.load(self.rethinker, "%s:%s" % reassign_to.host, reassign_to.segment):
                 assignment_cache[top_host['node']].insert(0, reassign_from)
                 continue
             # enqueue segment
