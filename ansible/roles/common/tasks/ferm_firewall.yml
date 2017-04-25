@@ -1,22 +1,42 @@
-- name: Open Consul firewall ports
+- name: Open RethinkDB intracluster communication firewall port
   become_user: root
   become: true
   vars:
-    begin_port: 6300
-    end_port: 6600
+    begin_port: 29015
+    end_port: 29015
   template:
     src: templates/open-ports.ferm.j2
-    dest: /etc/ferm/input/cluster.consul.ports
+    dest: /etc/ferm/input/cluster.rethinkdb.communication.port
 
-- name: Open Consul DNS ports
+- name: Open RethinkDB client driver firewall port
   become_user: root
   become: true
   vars:
-    dns_port: 53
-    consul_dns_port: 6600
+    begin_port: 28015
+    end_port: 28015
   template:
-    src: templates/open-dns-port.ferm.j2
-    dest: /etc/ferm/input/cluster.consul.dns.port
+    src: templates/open-ports.ferm.j2
+    dest: /etc/ferm/input/cluster.rethinkdb.communication.port
+
+- name: Open RethinkDB UI http port
+  become_user: root
+  become: true
+  vars:
+    begin_port: 8080
+    end_port: 8080
+  template:
+    src: templates/open-ports.ferm.j2
+    dest: /etc/ferm/input/cluster.rethinkdb.webui.port
+
+#- name: Open Consul DNS ports
+#  become_user: root
+#  become: true
+#  vars:
+#    dns_port: 53
+#    consul_dns_port: 6600
+#  template:
+#    src: templates/open-dns-port.ferm.j2
+#    dest: /etc/ferm/input/cluster.consul.dns.port
 
 - name: Open Trough firewall ports
   become_user: root
