@@ -19,18 +19,19 @@ class Assignment(doublethink.Document):
     def populate_defaults(self):
         if not "id" in self:
             self.id = "{host}:{segment}".format(host=self.host, segment=self.segment)
-    def table_create(self, *args, **kwargs):
-        super().create_table(self, *args, **kwargs)
-        rr.table(self.table).indexCreate('segment')
-        rr.table(self.table).indexWait('segment')
-    def unassign(self):
-        return rr.table(cls.table).get(self.id).delete()
+    @classmethod
+    def table_create(cls, rr):
+        rr.table_create(cls.table).run()
+        rr.table(cls.table).index_create('segment')
+        rr.table(cls.table).index_wait('segment')
     @classmethod
     def host_assignments(cls, rr, host):
-        return rr.table(cls.table).between('%s:\x00' % host, '%s:\xff' % host).run()
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).between('%s:\x01' % host, '%s:\x7f' % host, right_bound="closed").run())
     @classmethod
     def segment_assignments(cls, rr, segment):
-        return rr.table(cls.table).get_all(segment, {index: "segment"}).run()
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, {index: "segment"}).run())
+    def unassign(self):
+        return rr.table(self.table).get(self.id).delete()
 
 class Lock(doublethink.Document):
     @classmethod
@@ -51,7 +52,6 @@ class Lock(doublethink.Document):
 #     'segment': '183999',
 #     'assigned_on': r.now(),
 #     'remote_path': '/ait/qa/trough/183999.sqlite',
-#     'local_path': '/var/tmp/trough/segments/183999.sqlite',
 #     'bytes': 18982891 })
 # asmt.save()
 
@@ -72,35 +72,24 @@ class Lock(doublethink.Document):
 # svcreg.leader('trough-sync-master')
 
 class Segment(object):
-    def __init__(self, consul, segment_id, size, registry):
-        self.consul = consul
+    def __init__(self, rethinker, segment_id, size, registry):
         self.id = segment_id
         self.size = int(size)
         self.registry = registry
+        self.rethinker = rethinker
     def host_key(self, host):
         return "%s:%s" % (host, self.id)
-    def all_copies(self, full_record=False):
-        ''' TODO: must return a set of Assignments, to support .unassign, below '''
+    def all_copies(self):
         ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
-        assignments = []
-        for host in self.registry.get_hosts():
-            # then for each host, we'll check the k/v store
-            record = None
-            if full_record:
-                record = self.consul.kv.get_record(self.host_key(host['node']))
-            elif self.consul.kv.get(self.host_key(host['node'])):
-                record = self.host_key(host['node'])
-            if record:
-                assignments.append(record)
-        return assignments
+        return Assignment.segment_assignments(self.rethinker, self.id)
     def readable_copies(self):
         '''returns the 'up' copies of this segment to read from, per consul.'''
-        return self.consul.catalog.service("trough/read/%s" % self.id)
+        return (copy for copy in self.services.available_services('trough-read') if copy.segment == self.id)
     def writable_copies(self):
         '''returns the 'up' copies of this segment to write to, per consul.'''
-        return self.consul.catalog.service("trough/write/%s" % self.id)
+        return (copy for copy in self.services.available_services('trough-write') if copy.segment == self.id)
     def is_assigned_to_host(self, host):
-        return bool(self.consul.kv.get(self.host_key(host)))
+        return bool(Assignment.load(self.host_key(host)))
     def minimum_assignments(self):
         '''This function should return the minimum number of assignments which is acceptable for a given segment.'''
         if hasattr(settings['MINIMUM_ASSIGNMENTS'], "__call__"):
@@ -109,22 +98,17 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS']
     def acquire_write_lock(self, host):
         '''Raises exception if required parameter "host" is not provided. Raises exception if lock exists.'''
-        lock_key = 'write/locks/%s' % self.id
-        if self.consul.kv.get(lock_key):
-            raise Exception('Segment is already locked.')
-        lock_data = {'node': host, 'Datestamp': datetime.datetime.now().isoformat() }
-        self.consul.kv[lock_key] = json.dumps(lock_data)
-        return lock_data
+        return Lock.acquire(rr, pk='write:lock:%s' % segment_id, document={})
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
-        return json.loads(self.consul.kv.get('write/locks/%s' % self.id, "null"))
-    def release_write_lock(self):
-        '''Delete a lock. Raises exception in the case that the lock does not exist.'''
-        del self.consul.kv['write/locks/%s' % self.id]
+        return Lock.load(rr, pk='write:lock:%s' % segment_id)
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def remote_path(self):
-        return os.path.join(settings['HDFS_PATH'], "%s.sqlite" % self.id)
+        asmt = Assignment.load(self.host_key(settings['HOSTNAME']))
+        if asmt:
+            return asmt.remote_path
+        return ""
     def local_segment_exists(self):
         return os.path.isfile(self.local_path())
     def provision_local_segment(self):
@@ -188,13 +172,13 @@ class HostRegistry(object):
         doc['heartbeat_interval'] = heartbeat_interval
         logging.info('Registering: role[%s] node[%s] at IP %s:%s with TTL %s' % (pool, node, service_id, address, doc.get('port'), ttl))
         self.services.heartbeat(doc)
-    def assign(self, hostname, segment):
+    def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
         asmt = Assignment(rr, d={ 
             'host': hostname,
             'segment': segment.id,
             'assigned_on': r.now(),
-            'remote_path': segment.remote_path,
+            'remote_path': segment.remote_path(),
             'bytes': segment.size })
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
         asmt.save()
@@ -276,7 +260,7 @@ class MasterSyncController(SyncController):
             if not len(segment.all_copies()) >= segment.minimum_assignments():
                 emptiest_host = sorted(self.registry.host_load(), key=lambda host: host['assigned_bytes'])[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
-                self.registry.assign(emptiest_host['node'], segment)
+                self.registry.assign(emptiest_host['node'], segment, remote_path=file['path'])
             else:
                 # If we find too many 'up' copies
                 if len(segment.readable_copies()) > segment.minimum_assignments():
@@ -389,7 +373,7 @@ class MasterSyncController(SyncController):
         # if not my hostname, raise exception
         # acquire a lock for the process of provisioning
         # with lock:
-        with lock = self.wait_for_write_lock():
+        with self.wait_for_write_lock() as lock:
             segment = Segment(segment_id=segment_id,
                 rethinker=self.rethinker,
                 services=self.services,
@@ -407,7 +391,7 @@ class MasterSyncController(SyncController):
                 self.registry.heartbeat(pool='trough-write',
                     segment=segment_id,
                     node=assigned_host,
-                    port=settings['WRITE_PORT']
+                    port=settings['WRITE_PORT'],
                     heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
             else:
                 assigned_host = writable_copies[0]
