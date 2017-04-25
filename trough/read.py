@@ -9,6 +9,7 @@ import logging
 import consulate
 import requests
 from contextlib import closing
+import urllib
 
 class ReadServer:
     def proxy_for_write_host(self, segment, query):
@@ -50,7 +51,9 @@ class ReadServer:
     def __call__(self, env, start_response):
         self.start_response = start_response
         try:
-            segment_id = env.get('HTTP_HOST', "").split(".")[0] # get database id from host/request path
+            query_dict = urllib.parse.parse_qs(env['QUERY_STRING'])
+            # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
+            segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split(".")[0])
             consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
             registry = trough.sync.HostRegistry(consul=consul)
             segment = trough.sync.Segment(consul=consul, segment_id=segment_id, size=0, registry=registry)
