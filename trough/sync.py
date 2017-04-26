@@ -25,7 +25,7 @@ class AssignmentQueue:
             self.commit()
     def commit(self):
         self._queue
-        rethinker.table('assignment').insert(self._queue).run();
+        self.rethinker.table('assignment').insert(self._queue).run();
     def length(self):
         return len(self._queue)
 
