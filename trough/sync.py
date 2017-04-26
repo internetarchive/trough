@@ -251,7 +251,9 @@ class MasterSyncController(SyncController):
             local_part = file['path'].split('/')[-1]
             local_part = local_part.replace('.sqlite', '')
             segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=0)
-            if not len([1 for cpy in segment.all_copies()]) >= segment.minimum_assignments():
+            assignment_count = len([1 for cpy in segment.all_copies()])
+            logging.info("Checking segment [%s]:  %s assignments of %s minimum assignments." % (segment.id, assignment_count, segment.minimum_assignments()))
+            if not assignment_count >= segment.minimum_assignments():
                 emptiest_host = sorted(self.registry.host_load(), key=lambda host: host['assigned_bytes'])[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
                 self.registry.assign(emptiest_host['node'], segment, remote_path=file['path'])
