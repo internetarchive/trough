@@ -15,10 +15,25 @@ import requests
 import datetime
 import sqlite3
 
+class AssignmentQueue:
+    def __init__(self, rethinker):
+        self._queue = []
+        self.rethinker = rethinker
+    def enqueue(self, item):
+        self._queue.append(item)
+        if self.length() >= 1000:
+            self.commit()
+    def commit(self):
+        self._queue
+        rethinker.table('assignment').insert(self._queue).run();
+    def length(self):
+        return len(self._queue)
+
 class Assignment(doublethink.Document):
     def populate_defaults(self):
         if not "id" in self:
             self.id = "{host}:{segment}".format(host=self.host, segment=self.segment)
+            self._pk = "id"
     @classmethod
     def table_create(cls, rr):
         rr.table_create(cls.table).run()
@@ -102,6 +117,7 @@ class HostRegistry(object):
     def __init__(self, rethinker, services):
         self.rethinker = rethinker
         self.services = services
+        self.assignment_queue = AssignmentQueue()
     def get_hosts(self):
         return self.services.available_services('trough-nodes')
     def hosts_exist(self):
@@ -157,12 +173,14 @@ class HostRegistry(object):
             'remote_path': segment.remote_path(),
             'bytes': segment.size })
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
-        asmt.save()
+        self.assignment_queue.enqueue(asmt)
     def segments_for_host(self, host):
         assignments = Assignment.host_assignments(self.rethinker, host)
         segments = [Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self) for asmt in assignments]
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
+    def commit_assignments(self):
+        self.assignment_queue.commit()
 
 # Base class, not intended for use.
 class SyncController:
@@ -251,6 +269,7 @@ class MasterSyncController(SyncController):
             if writable_copies:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(writable_copies[0].get('id'))
+        self.registry.commit_assignments()
 
     def rebalance_hosts(self):
         logging.info('Rebalancing Hosts...')
