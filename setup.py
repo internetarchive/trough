@@ -25,6 +25,7 @@ setup(
         'ujson==1.35',
         'sqlparse==0.2.2',
         'uWSGI==2.0.14',
+        'doublethink==0.2.0.dev73',
     ],
     scripts=glob.glob('scripts/*.py'),
 )
