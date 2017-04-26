@@ -213,7 +213,7 @@ class MasterSyncController(SyncController):
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
-            assert settings['RETHINKDB_HOST'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
+            assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
@@ -408,7 +408,7 @@ class LocalSyncController(SyncController):
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['READ_PORT'], "SYNC_PORT must be set. We need to know the output port."
-            assert settings['RETHINKDB_HOST'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
+            assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
