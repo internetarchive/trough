@@ -117,7 +117,7 @@ class HostRegistry(object):
     def __init__(self, rethinker, services):
         self.rethinker = rethinker
         self.services = services
-        self.assignment_queue = AssignmentQueue()
+        self.assignment_queue = AssignmentQueue(self.rethinker)
     def get_hosts(self):
         return self.services.available_services('trough-nodes')
     def hosts_exist(self):
