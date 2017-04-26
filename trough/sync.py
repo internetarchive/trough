@@ -501,8 +501,8 @@ class LocalSyncController(SyncController):
         self.sync_segments()
 
 def get_controller(server_mode):
-    logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOST'])
-    rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOST'])
+    logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
+    rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
     services = doublethink.ServiceRegistry(rethinker)
     registry = HostRegistry(rethinker=rethinker, services=services)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
