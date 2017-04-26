@@ -39,3 +39,11 @@
 - name: Include ferm firewall rules if we are on Ubuntu xenial
   when: ansible_os_family == "Debian" and ansible_distribution_major_version == "16"
   include: ferm_firewall.yml
+
+- name: Install Trough Configuration
+  become: true
+  template:
+    src: settings.j2
+    dest: "/etc/trough/settings.yml"
+    owner: root
+    mode: 0644

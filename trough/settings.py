@@ -51,8 +51,7 @@ settings = {
     'READ_NODE_DNS_TTL': 60 * 10, # 10 minute default
     'READ_DATABASE_DNS_TTL': 60 * 10, # 10 minute default
     'SYNC_LOOP_TIMING': 60 * 2, # do a 'sync' loop every N seconds (default: 2m. applies to both local and master sync nodes)
-    'CONSUL_ADDRESS': '127.0.0.1', # default to 'localhost' for consul connection.
-    'CONSUL_PORT': 8500, # default to port 8500 (default) for consul
+    'RETHINKDB_HOSTS': ["localhost",],
     'MINIMUM_ASSIGNMENTS': 2,
     'LOG_LEVEL': 'INFO',
     'SEGMENT_INITIALIZATION_SQL': os.path.join(os.path.dirname(__file__), os.path.pardir, "conf", "intialize.sql"),

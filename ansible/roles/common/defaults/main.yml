@@ -7,4 +7,3 @@ sync_port: 6111
 minimum_assignments: "lambda segment_id: 2 if segment_id.isnumeric() and int(segment_id) > 200000 else 1"
 hdfs_host: null
 hdfs_port: 8000
-consul_port: 8500

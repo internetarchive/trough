@@ -213,8 +213,7 @@ class MasterSyncController(SyncController):
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
-            assert settings['CONSUL_ADDRESS'], "CONSUL_ADDRESS must be set. Where can I contact consul's RPC interface?"
-            assert settings['CONSUL_PORT'], "CONSUL_PORT must be set. Where can I contact consul's RPC interface?"
+            assert settings['RETHINKDB_HOST'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
@@ -409,8 +408,7 @@ class LocalSyncController(SyncController):
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['READ_PORT'], "SYNC_PORT must be set. We need to know the output port."
-            assert settings['CONSUL_ADDRESS'], "CONSUL_ADDRESS must be set. Where can I contact consul's RPC interface?"
-            assert settings['CONSUL_PORT'], "CONSUL_PORT must be set. Where can I contact consul's RPC interface?"
+            assert settings['RETHINKDB_HOST'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
@@ -503,13 +501,12 @@ class LocalSyncController(SyncController):
         self.sync_segments()
 
 def get_controller(server_mode):
-    logging.info('Connecting to Consul for on: %s:%s' % (settings['CONSUL_ADDRESS'], settings['CONSUL_PORT']))
-    rethinker = doublethink.Rethinker(db="trough_configuration")
+    logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOST'])
+    rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOST'])
     services = doublethink.ServiceRegistry(rethinker)
     registry = HostRegistry(rethinker=rethinker, services=services)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
     snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-    # ... later ('rr' will need to get passed around)
     Assignment.table_ensure(rethinker)
     Lock.table_ensure(rethinker)
 
