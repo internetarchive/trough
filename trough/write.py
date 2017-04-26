@@ -34,9 +34,11 @@ class WriteServer:
             query_dict = urllib.parse.parse_qs(env['QUERY_STRING'])
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
             segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split(".")[0])
-            consul = consulate.Consul(host=settings['CONSUL_ADDRESS'], port=settings['CONSUL_PORT'])
-            registry = trough.sync.HostRegistry(consul=consul)
-            segment = trough.sync.Segment(segment_id=segment_id, consul=consul, registry=registry, size=None)
+            logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOST'])
+            rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOST'])
+            services = doublethink.ServiceRegistry(rethinker)
+            registry = HostRegistry(rethinker=rethinker, services=services)
+            segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=rethinker, services=services, registry=registry)
             query = env.get('wsgi.input').read()
 
             write_lock = segment.retrieve_write_lock()
