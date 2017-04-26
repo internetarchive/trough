@@ -1,0 +1,2 @@
+CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));
+INSERT INTO test (test) VALUES ("test");
