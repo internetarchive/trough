@@ -250,7 +250,7 @@ class MasterSyncController(SyncController):
         for file in self.get_segment_file_list():
             local_part = file['path'].split('/')[-1]
             local_part = local_part.replace('.sqlite', '')
-            segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=0)
+            segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=file['length'])
             assignment_count = len([1 for cpy in segment.all_copies()])
             logging.info("Checking segment [%s]:  %s assignments of %s minimum assignments." % (segment.id, assignment_count, segment.minimum_assignments()))
             if not assignment_count >= segment.minimum_assignments():
