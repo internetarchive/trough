@@ -75,10 +75,10 @@ class Segment(object):
         return Assignment.segment_assignments(self.rethinker, self.id)
     def readable_copies(self):
         '''returns the 'up' copies of this segment to read from, per consul.'''
-        return (copy for copy in self.services.available_services('trough-read') if copy.segment == self.id)
+        return (copy for copy in self.services.available_services('trough-read') if copy['segment'] == self.id)
     def writable_copies(self):
         '''returns the 'up' copies of this segment to write to, per consul.'''
-        return (copy for copy in self.services.available_services('trough-write') if copy.segment == self.id)
+        return (copy for copy in self.services.available_services('trough-write') if copy['segment'] == self.id)
     def is_assigned_to_host(self, host):
         return bool(Assignment.load(self.rethinker, self.host_key(host)))
     def minimum_assignments(self):
@@ -130,10 +130,14 @@ class HostRegistry(object):
                 return service.get('available_bytes')
         return 0
     def host_load(self):
+        logging.info('Beginning Host Load Calculation...')
         output = []
         for host in self.get_hosts():
+            logging.info('Working on host %s' % host)
             assigned_bytes = sum([assignment.bytes for assignment in Assignment.host_assignments(self.rethinker, host['node'])])
+            logging.info('Found %s bytes assigned to host %s' % (assigned_bytes, host))
             total_bytes = self.total_bytes_for_node(host['node'])
+            logging.info('Total bytes for node: %s' % total_bytes)
             total_bytes = 0 if total_bytes in ['null', None] else int(total_bytes)
             output.append({
                 'node': host['node'],
@@ -254,7 +258,9 @@ class MasterSyncController(SyncController):
             assignment_count = len([1 for cpy in segment.all_copies()])
             logging.info("Checking segment [%s]:  %s assignments of %s minimum assignments." % (segment.id, assignment_count, segment.minimum_assignments()))
             if not assignment_count >= segment.minimum_assignments():
-                emptiest_host = sorted(self.registry.host_load(), key=lambda host: host['assigned_bytes'])[0]
+                host_load = self.registry.host_load()
+                logging.info('Calculated Host Load: %s' % host_load)
+                emptiest_host = sorted(host_load, key=lambda host: host['assigned_bytes'])[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
                 self.registry.assign(emptiest_host['node'], segment, remote_path=file['path'])
             else:
