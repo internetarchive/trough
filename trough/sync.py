@@ -170,7 +170,7 @@ class HostRegistry(object):
             'host': hostname,
             'segment': segment.id,
             'assigned_on': r.now(),
-            'remote_path': segment.remote_path(),
+            'remote_path': remote_path,
             'bytes': segment.size })
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
         self.assignment_queue.enqueue(asmt)
