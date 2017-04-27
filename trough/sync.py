@@ -163,10 +163,13 @@ class HostRegistry(object):
     def heartbeat(self, pool=None, node=None, heartbeat_interval=None, **doc):
         if None in [pool, node, heartbeat_interval]:
             raise Exception('"pool", "node" and "heartbeat_interval" are required arguments.')
+        doc['id'] = "%s:%s:%s" % (pool, node, doc.get('segment'))
+        logging.info("Setting Heartbeat ID to [%s]" % doc['id'])
         doc['role'] = pool
         doc['node'] = node
         doc['heartbeat_interval'] = heartbeat_interval
-        logging.info('Registering: role[%s] node[%s] at IP %s:%s with heartbeat interval %s' % (pool, node, node, doc.get('port'), heartbeat_interval))
+        doc['load'] = os.getloadavg()[1] # load average over last 5 mins
+        logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with heartbeat interval %s' % (pool, node, node, doc.get('port'), heartbeat_interval))
         self.services.heartbeat(doc)
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
