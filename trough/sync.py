@@ -226,8 +226,13 @@ class MasterSyncController(SyncController):
 
     def hold_election(self):
         logging.info('Holding Sync Master Election...')
-        candidate = { 'node': settings['HOSTNAME'], "heartbeat_interval": settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2, "load": os.getloadavg() }
-        sync_master = self.services.leader('trough-sync-master', default=candidate)
+        candidate = { 
+            "id": "trough-sync-master",
+            "node": settings['HOSTNAME'],
+            "heartbeat_interval": settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2,
+            "load": os.getloadavg()
+        }
+        sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)
         if sync_master.get('node') == settings['HOSTNAME']:
             # 'touch' the ttl check for sync master
             logging.info('Still the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
