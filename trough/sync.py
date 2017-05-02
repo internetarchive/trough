@@ -378,7 +378,7 @@ class MasterSyncController(SyncController):
         # if not my hostname, raise exception
         # acquire a lock for the process of provisioning
         # with lock:
-        with self.wait_for_write_lock() as lock:
+        with self.wait_for_write_lock(segment_id) as lock:
             segment = Segment(segment_id=segment_id,
                 rethinker=self.rethinker,
                 services=self.services,
