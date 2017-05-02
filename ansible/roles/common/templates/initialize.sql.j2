@@ -1,0 +1,134 @@
+CREATE TABLE host_statistics(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        host VARCHAR(4000) UNIQUE,
+        all_count BIGINT,
+        new_count BIGINT,
+        all_size BIGINT,
+        new_size BIGINT,
+        blocked INTEGER,
+        queued INTEGER,
+        out_of_scope INTEGER);
+CREATE INDEX host_index ON host_statistics (host);
+CREATE TRIGGER collect_host_statistics AFTER INSERT ON crawled_url
+        FOR EACH ROW
+        BEGIN
+            UPDATE host_statistics 
+                SET
+                    all_count = all_count + 1,
+                    all_size = all_size + new.size,
+                    new_count = new_count + CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,
+                    new_size = new_size + CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END,
+                    blocked = blocked + CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END
+            WHERE host = new.host;
+            -- If no update happened (i.e. the row didn't exist) then insert one
+            INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, blocked, queued, out_of_scope) 
+                SELECT 
+                    new.host,                                              -- host
+                    1,                                                     -- all_count
+                    new.size,                                              -- all_size
+                    CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,        -- new_count
+                    CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END, -- new_size
+                    CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END,     -- blocked
+                    0,                                                     -- queued (inserts on crawled_url don't include queued)
+                    0                                                      -- out_of_scope (inserts on crawled_url don't include OOS)
+                WHERE (Select Changes() = 0);
+        END;
+
+CREATE TABLE seed_statistics(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        seed VARCHAR(4000) UNIQUE,
+        all_count BIGINT,
+        new_count BIGINT,
+        all_size BIGINT,
+        new_size BIGINT,
+        timestamp DATETIME,
+        status INTEGER,
+        status_code INTEGER);
+CREATE INDEX seed_index ON seed_statistics (seed);
+CREATE TRIGGER collect_seed_statistics AFTER INSERT ON crawled_url
+        FOR EACH ROW
+        BEGIN
+            UPDATE seed_statistics 
+                SET
+                    all_count = all_count + 1,
+                    all_size = all_size + new.size,
+                    new_count = new_count + CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,
+                    new_size = new_size + CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END,
+                    timestamp = CASE WHEN new.hop_path REGEXP "^R.$" THEN new.timestamp ELSE NULL END, -- TODO: this is wrong.
+                    status = CASE WHEN new.hop_path REGEXP "^R+$" THEN 'Redirected' WHEN new.hop_path REGEXP "^$" THEN 'Crawled' ELSE NULL END, -- TODO: this is wrong.
+                    status_code = CASE WHEN new.hop_path REGEXP "^$" THEN new.status_code ELSE NULL END -- TODO: this is wrong.
+            WHERE seed = new.seed;
+            -- If no update happened (i.e. the row didn't exist) then insert one
+            INSERT INTO seed_statistics (seed, all_count, all_size, new_count, new_size, timestamp, status, status_code) 
+                SELECT 
+                    new.seed,                                                             -- seed
+                    1,                                                                    -- all_count
+                    new.size,                                                             -- all_size
+                    CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,                       -- new_count
+                    CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END,                -- new_size
+                    CASE WHEN new.hop_path REGEXP "^R.$" THEN new.timestamp ELSE NULL END, -- timestamp -- TODO: this is wrong.
+                    CASE WHEN new.hop_path REGEXP "^R+$'" THEN 'Redirected' WHEN new.hop_path REGEXP "^$" THEN 'Crawled' ELSE NULL END, -- status -- TODO: this is wrong.
+                    CASE WHEN new.hop_path REGEXP "^$" THEN new.status_code ELSE NULL END  -- status_code -- TODO: this is wrong.
+                WHERE (Select Changes() = 0);
+        END;
+
+CREATE TABLE mimetype_statistics(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mimetype VARCHAR(4000) UNIQUE,
+        all_count BIGINT,
+        new_count BIGINT,
+        all_size BIGINT,
+        new_size BIGINT);
+CREATE INDEX mimetype_index ON mimetype_statistics (mimetype);
+CREATE TRIGGER collect_mimetype_statistics AFTER INSERT ON crawled_url
+        FOR EACH ROW
+        BEGIN
+            UPDATE mimetype_statistics 
+                SET
+                    all_count = all_count + 1,
+                    all_size = all_size + new.size,
+                    new_count = new_count + CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,
+                    new_size = new_size + CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END
+            WHERE mimetype = new.mimetype;
+            -- If no update happened (i.e. the row didn't exist) then insert one
+            INSERT INTO mimetype_statistics (mimetype, all_count, all_size, new_count, new_size) 
+                SELECT 
+                    new.mimetype,                                          -- mimetype
+                    1,                                                     -- all_count
+                    new.size,                                              -- all_size
+                    CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,        -- new_count
+                    CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END  -- new_size
+                WHERE (Select Changes() = 0);
+        END;
+
+
+CREATE TABLE crawled_url(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME,
+        status_code INTEGER,
+        size BIGINT,
+        url VARCHAR(4000),
+        hop_path VARCHAR(255),
+        is_seed_redirect INTEGER(1),
+        via VARCHAR(255),
+        mimetype VARCHAR(255),
+        content_digest VARCHAR(255),
+        seed VARCHAR(4000),
+        is_duplicate INTEGER(1),
+        warc_filename VARCHAR(255),
+        warc_offset VARCHAR(255),
+        host VARCHAR(255));
+
+CREATE TABLE queued_url(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME,
+        url VARCHAR(4000),
+        hop_path VARCHAR(255),
+        via VARCHAR(255),
+        seed VARCHAR(4000),
+        host VARCHAR(255));
+
+CREATE TABLE out_of_scope_url (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url VARCHAR(4000),
+        host VARCHAR(255));
