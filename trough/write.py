@@ -7,6 +7,7 @@ import os
 import sqlparse
 import logging
 import consulate
+import urllib
 
 class WriteServer:
     def write(self, segment, query):
