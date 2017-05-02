@@ -54,12 +54,12 @@ class Lock(doublethink.Document):
         document["pk"] = pk
         document["acquired_on"] = r.now()
         try:
-            rr.table(cls.table).insert(document)
+            rr.table(cls.table).insert(document).run()
         except Exception as e:
             raise LockException('Unable to acquire a lock for %s' % pk)
         return cls(rr, d=document)
     def release(self):
-        return self.rr.table(self.table, read_mode='majority').get(self.pk).delete()
+        return self.rr.table(self.table, read_mode='majority').get(self.pk).delete().run()
 
 class Segment(object):
     def __init__(self, segment_id, size, rethinker, services, registry):
