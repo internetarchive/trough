@@ -3,6 +3,7 @@ HDFS_HOST: {{ hdfs_host }}
 HDFS_PORT: {{ hdfs_port }}
 MINIMUM_ASSIGNMENTS: "{{ minimum_assignments }}"
 HOSTNAME: {{ ansible_hostname }}
+SEGMENT_INITIALIZATION_SQL: /etc/trough/initialize.sql
 RETHINKDB_HOSTS:
 {% for node in groups['rethinkdb'] %}
   - {{node}}

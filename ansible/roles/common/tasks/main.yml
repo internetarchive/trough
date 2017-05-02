@@ -47,3 +47,11 @@
     dest: "/etc/trough/settings.yml"
     owner: root
     mode: 0644
+
+- name: Install Segment Initialization SQL File
+  become: true
+  template:
+    src: initialize.sql.j2
+    dest: "/etc/trough/initialize.sql"
+    owner: root
+    mode: 0644
