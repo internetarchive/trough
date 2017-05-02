@@ -371,6 +371,7 @@ class MasterSyncController(SyncController):
         lock = None
         while not lock:
             lock = Lock.acquire(self.rethinker, pk='master/%s' % segment_id)
+            print(lock)
         return lock
 
     def provision_writable_segment(self, segment_id):
@@ -379,28 +380,28 @@ class MasterSyncController(SyncController):
         # if not my hostname, raise exception
         # acquire a lock for the process of provisioning
         # with lock:
-        with self.wait_for_write_lock(segment_id) as lock:
-            segment = Segment(segment_id=segment_id,
-                rethinker=self.rethinker,
-                services=self.services,
-                registry=self.registry, size=0)
-            writable_copies = segment.writable_copies()
-            readable_copies = segment.readable_copies()
-            # if the requested segment has no writable copies:
-            if len(writable_copies) == 0:
-                all_hosts = registry.get_hosts()
-                assigned_host = random.choice(readable_copies) if readable_copies else random_choice(all_hosts)
-                # make request to node to complete the local sync
-                post_url = 'http://%s:%s/' % (assigned_host, settings['SYNC_PORT'])
-                requests.post(post_url, segment_id)
-                # create a new consul service
-                self.registry.heartbeat(pool='trough-write',
-                    segment=segment_id,
-                    node=assigned_host,
-                    port=settings['WRITE_PORT'],
-                    heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
-            else:
-                assigned_host = writable_copies[0]
+        lock = self.wait_for_write_lock(segment_id)
+        segment = Segment(segment_id=segment_id,
+            rethinker=self.rethinker,
+            services=self.services,
+            registry=self.registry, size=0)
+        writable_copies = segment.writable_copies()
+        readable_copies = segment.readable_copies()
+        # if the requested segment has no writable copies:
+        if len(writable_copies) == 0:
+            all_hosts = registry.get_hosts()
+            assigned_host = random.choice(readable_copies) if readable_copies else random_choice(all_hosts)
+            # make request to node to complete the local sync
+            post_url = 'http://%s:%s/' % (assigned_host, settings['SYNC_PORT'])
+            requests.post(post_url, segment_id)
+            # create a new consul service
+            self.registry.heartbeat(pool='trough-write',
+                segment=segment_id,
+                node=assigned_host,
+                port=settings['WRITE_PORT'],
+                heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
+        else:
+            assigned_host = writable_copies[0]
         # explicitly release provisioning lock (do nothing)
         lock.release()
         # return an http endpoint for POSTs
