@@ -385,8 +385,8 @@ class MasterSyncController(SyncController):
             rethinker=self.rethinker,
             services=self.services,
             registry=self.registry, size=0)
-        writable_copies = segment.writable_copies()
-        readable_copies = segment.readable_copies()
+        writable_copies = [copy for copy in segment.writable_copies()]
+        readable_copies = [copy for copy in segment.readable_copies()]
         # if the requested segment has no writable copies:
         if len(writable_copies) == 0:
             all_hosts = registry.get_hosts()
