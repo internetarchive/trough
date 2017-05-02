@@ -35,7 +35,7 @@ class WriteServer:
         try:
             query_dict = urllib.parse.parse_qs(env['QUERY_STRING'])
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
-            segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split(".")[0])
+            segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split("."))[0]
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
             rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
             services = doublethink.ServiceRegistry(rethinker)
@@ -44,7 +44,7 @@ class WriteServer:
             query = env.get('wsgi.input').read()
 
             write_lock = segment.retrieve_write_lock()
-            if not write_lock or write_lock['Node'] != settings['HOSTNAME']:
+            if not write_lock or write_lock['node'] != settings['HOSTNAME']:
                 raise Exception("This node cannot write to segment '{}'. There is no write lock set, or the write lock authorizes another node.".format(segment.id))
 
             return self.write(segment, query)
