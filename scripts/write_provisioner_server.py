@@ -9,7 +9,7 @@ def application(env, start_response):
         controller.check_config()
         segment_name = env.get('wsgi.input').read()
         output = controller.provision_writable_segment(segment_name)
-        start_response()
+        start_response('200 OK', [('Content-Type','application/json')])
         return output
     except Exception as e:
         start_response('500 Server Error', [('Content-Type', 'text/plain')])
