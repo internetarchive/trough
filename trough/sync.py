@@ -392,12 +392,12 @@ class MasterSyncController(SyncController):
             all_hosts = self.registry.get_hosts()
             assigned_host = random.choice(readable_copies) if readable_copies else random.choice(all_hosts)
             # make request to node to complete the local sync
-            post_url = 'http://%s:%s/' % (assigned_host, settings['SYNC_PORT'])
+            post_url = 'http://%s:%s/' % (assigned_host['node'], settings['SYNC_PORT'])
             requests.post(post_url, segment_id)
             # create a new consul service
             self.registry.heartbeat(pool='trough-write',
                 segment=segment_id,
-                node=assigned_host,
+                node=assigned_host['node'],
                 port=settings['WRITE_PORT'],
                 heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
         else:
@@ -405,7 +405,7 @@ class MasterSyncController(SyncController):
         # explicitly release provisioning lock (do nothing)
         lock.release()
         # return an http endpoint for POSTs
-        return "http://%s:%s/?segment=%s" % (assigned_host, settings['WRITE_PORT'], segment_id)
+        return "http://%s:%s/?segment=%s" % (assigned_host['node'], settings['WRITE_PORT'], segment_id)
 
     def decommission_writable_segment(self, service_id):
         logging.info('De-commissioning a writable segment: %s' % service_id)
