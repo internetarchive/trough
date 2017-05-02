@@ -52,6 +52,7 @@ class Lock(doublethink.Document):
     @classmethod
     def acquire(cls, rr, pk, document={}):
         document["id"] = pk
+        document["node"] = settings['HOSTNAME']
         document["acquired_on"] = r.now()
         try:
             rr.table(cls.table).insert(document).run()
