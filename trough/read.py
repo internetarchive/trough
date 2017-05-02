@@ -10,6 +10,7 @@ import consulate
 import requests
 from contextlib import closing
 import urllib
+import doublethink
 
 class ReadServer:
     def proxy_for_write_host(self, segment, query):
@@ -57,7 +58,7 @@ class ReadServer:
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
             rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
             services = doublethink.ServiceRegistry(rethinker)
-            registry = HostRegistry(rethinker=rethinker, services=services)
+            registry = trough.sync.HostRegistry(rethinker=rethinker, services=services)
             segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=rethinker, services=services, registry=registry)
             query = env.get('wsgi.input').read()
             write_lock = segment.retrieve_write_lock()
