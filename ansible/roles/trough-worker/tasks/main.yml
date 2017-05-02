@@ -101,7 +101,7 @@
   svc:
     name: trough-read
     enabled: yes
-    state: started
+    state: restarted
     service_dir: "/etc/service/trough-read"
 
 - name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
@@ -129,5 +129,5 @@
   svc:
     name: trough-write-provisioner-local
     enabled: yes
-    state: started
+    state: restarted
     service_dir: "/etc/service/trough-write-provisioner-local"
