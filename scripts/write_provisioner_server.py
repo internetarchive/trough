@@ -11,7 +11,7 @@ def application(env, start_response):
         segment_name = segment_name.decode('UTF-8')
         output = controller.provision_writable_segment(segment_name)
         start_response('200 OK', [('Content-Type','application/json')])
-        return output
+        return output.encode('utf-8')
     except Exception as e:
         start_response('500 Server Error', [('Content-Type', 'text/plain')])
         return [b'500 Server Error: %s' % str(e).encode('utf-8')]
