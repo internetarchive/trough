@@ -391,17 +391,17 @@ class MasterSyncController(SyncController):
         if len(writable_copies) == 0:
             all_hosts = self.registry.get_hosts()
             assigned_host = random.choice(readable_copies) if readable_copies else random.choice(all_hosts)
-            # make request to node to complete the local sync
-            post_url = 'http://%s:%s/' % (assigned_host['node'], settings['SYNC_PORT'])
-            requests.post(post_url, segment_id)
-            # create a new consul service
-            self.registry.heartbeat(pool='trough-write',
-                segment=segment_id,
-                node=assigned_host['node'],
-                port=settings['WRITE_PORT'],
-                heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
         else:
             assigned_host = writable_copies[0]
+        # make request to node to complete the local sync
+        post_url = 'http://%s:%s/' % (assigned_host['node'], settings['SYNC_PORT'])
+        requests.post(post_url, segment_id)
+        # create a new consul service
+        self.registry.heartbeat(pool='trough-write',
+            segment=segment_id,
+            node=assigned_host['node'],
+            port=settings['WRITE_PORT'],
+            heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
         # explicitly release provisioning lock (do nothing)
         lock.release()
         # return an http endpoint for POSTs
