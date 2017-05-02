@@ -50,8 +50,8 @@ class Assignment(doublethink.Document):
 
 class Lock(doublethink.Document):
     @classmethod
-    def acquire(cls, rr, id, document={}):
-        document["id"] = id
+    def acquire(cls, rr, pk, document={}):
+        document["id"] = pk
         document["acquired_on"] = r.now()
         try:
             rr.table(cls.table).insert(document).run()
@@ -89,10 +89,10 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS']
     def acquire_write_lock(self, host):
         '''Raises exception if required parameter "host" is not provided. Raises exception if lock exists.'''
-        return Lock.acquire(self.rethinker, id='write:lock:%s' % self.id, document={})
+        return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={})
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
-        return Lock.load(self.rethinker, id='write:lock:%s' % self.id)
+        return Lock.load(self.rethinker, pk='write:lock:%s' % self.id)
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def remote_path(self):
@@ -370,7 +370,7 @@ class MasterSyncController(SyncController):
     def wait_for_write_lock(self, segment_id):
         lock = None
         while not lock:
-            lock = Lock.acquire(self.rethinker, id='master/%s' % segment_id)
+            lock = Lock.acquire(self.rethinker, pk='master/%s' % segment_id)
             print(lock)
         return lock
 
