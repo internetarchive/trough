@@ -368,6 +368,7 @@ class MasterSyncController(SyncController):
         self.rebalance_hosts()
 
     def wait_for_write_lock(self, segment_id):
+        lock = None
         while not lock:
             lock = Lock.acquire(self.rethinker, pk='master/%s' % segment_id)
         return lock
