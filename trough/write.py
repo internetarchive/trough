@@ -8,6 +8,7 @@ import sqlparse
 import logging
 import consulate
 import urllib
+import doublethink
 
 class WriteServer:
     def write(self, segment, query):
