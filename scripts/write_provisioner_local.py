@@ -8,8 +8,9 @@ def application(env, start_response):
         controller = trough.sync.get_controller(server_mode=False)
         controller.check_config()
         segment_name = env.get('wsgi.input').read()
+        segment_name = segment_name.decode('UTF-8')
         output = controller.provision_writable_segment(segment_name)
-        start_response()
+        start_response('200 OK', [('Content-Type','application/json')])
         return output
     except Exception as e:
         start_response('500 Server Error', [('Content-Type', 'text/plain')])
