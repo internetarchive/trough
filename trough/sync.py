@@ -92,7 +92,7 @@ class Segment(object):
         return Lock.acquire(self.rethinker, pk='write:lock:%s' % segment_id, document={})
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
-        return Lock.load(self.rethinker, pk='write:lock:%s' % segment_id)
+        return Lock.load(self.rethinker, pk='write:lock:%s' % self.id)
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def remote_path(self):
