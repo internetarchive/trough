@@ -389,7 +389,7 @@ class MasterSyncController(SyncController):
         readable_copies = [copy for copy in segment.readable_copies()]
         # if the requested segment has no writable copies:
         if len(writable_copies) == 0:
-            all_hosts = registry.get_hosts()
+            all_hosts = self.registry.get_hosts()
             assigned_host = random.choice(readable_copies) if readable_copies else random_choice(all_hosts)
             # make request to node to complete the local sync
             post_url = 'http://%s:%s/' % (assigned_host, settings['SYNC_PORT'])
