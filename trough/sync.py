@@ -107,8 +107,8 @@ class Segment(object):
         connection = sqlite3.connect(self.local_path())
         cursor = connection.cursor()
         with open(settings['SEGMENT_INITIALIZATION_SQL'], 'r') as script:
-            for query in script:
-                cursor.execute(query)
+            query = script.read()
+            cursor.execute(query)
         cursor.close()
         connection.commit()
         connection.close()
