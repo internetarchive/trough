@@ -23,7 +23,7 @@ class WriteServer:
         trough.sync.setup_connection(connection)
         cursor = connection.cursor()
         try:
-            output = cursor.execute(query.decode('utf-8'))
+            output = cursor.executescript(query.decode('utf-8'))
         finally:
             cursor.close()
             connection.commit()
