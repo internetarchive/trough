@@ -17,6 +17,8 @@ import sqlite3
 
 def setup_connection(conn):
     def regexp(expr, item):
+        if item is None:
+            return False
         reg = re.compile(expr)
         return reg.search(item) is not None
     conn.create_function("REGEXP", 2, regexp)
