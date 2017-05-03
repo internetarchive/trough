@@ -15,6 +15,12 @@ import requests
 import datetime
 import sqlite3
 
+def setup_connection(conn):
+    def regexp(expr, item):
+        reg = re.compile(expr)
+        return reg.search(item) is not None
+    conn.create_function("REGEXP", 2, regexp)
+
 class AssignmentQueue:
     def __init__(self, rethinker):
         self._queue = []
@@ -105,6 +111,7 @@ class Segment(object):
         return os.path.isfile(self.local_path())
     def provision_local_segment(self):
         connection = sqlite3.connect(self.local_path())
+        setup_connection(connection)
         cursor = connection.cursor()
         with open(settings['SEGMENT_INITIALIZATION_SQL'], 'r') as script:
             query = script.read()

@@ -20,6 +20,7 @@ class WriteServer:
             if q.get_type() not in settings['ALLOWED_WRITE_VERBS']:
                 raise Exception('This server only accepts "Write" queries that begin with {}.'.format(settings['ALLOWED_WRITE_VERBS']))
         connection = sqlite3.connect(segment.local_path())
+        trough.sync.setup_connection(connection)
         cursor = connection.cursor()
         try:
             output = cursor.execute(query.decode('utf-8'))

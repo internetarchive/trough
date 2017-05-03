@@ -31,6 +31,7 @@ class ReadServer:
         if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
             raise Exception('Exactly one SELECT query per request, please.')
         connection = sqlite3.connect(segment.local_path())
+        trough.sync.setup_connection(connection)
         cursor = connection.cursor()
         first = True
         try:
