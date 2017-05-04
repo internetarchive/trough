@@ -1,3 +1,6 @@
+.. image:: https://travis-ci.org/jkafader/trough.svg?branch=master
+    :target: https://travis-ci.org/jkafader/trough
+
 =======
 Trough
 =======
@@ -5,7 +8,39 @@ Trough
 Big data, small databases.
 ==========================
 
-The overall thrust of the design of trough is to separate a very large dataset into small SQLite databases that can be quickly and easily queried. The system focuses on simplicity and ease of administration and setup.
+Big data is really just lots and lots of little data. Trough operates under the principle that if you split
+a large dataset into lots of data sharded on a well-chosen key, you can get the ease of working with small
+SQLite databases, working in concert to create a database system that can query very large datasets.
+
+Performance is important
+========================
+
+A key insight that one develops over time when working with large datasets is that generally with monolithic
+big data tools performance is largely tied to having a full dataset completely loaded and working in a 
+production-quality cluster.
+
+Trough is designed to have very predictable performance characteristics: simply determine your sharding key,
+determine your largest shard, load it into a sqlite database locally, and you already know your worst-case
+performance scenario.
+
+Designed to leverage storage
+============================
+
+Rather than having huge CPU and memory requirements to deliver performant queries over large datasets,
+Trough relies on flat sqlite files, which are easily distributed to a cluster and queried against.
+
+Reliable parts, reliable whole
+==============================
+
+Each piece of technology in the stack was carefully selected and load tested to ensure that your data stays
+reliably up and reliably queryable. The code is small enough for one programmer to audit.
+
+Ease of installation
+====================
+
+One of the worst parts of setting up a big data system generally is getting setting sensible defaults and
+deploying it to staging and production environments. Trough has been designed to require as little 
+configuration as possible and includes ansible files to help get it up and running quickly.
 
 
 =============

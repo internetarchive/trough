@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1dev',
+    version='0.1dev1',
     packages=['trough',],
     maintainer='James Kafader',
     maintainer_email='jkafader@archive.org',
