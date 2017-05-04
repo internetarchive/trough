@@ -16,16 +16,13 @@ class WriteServer:
         # if one or more of the query(s) are not a write query, raise an exception.
         if not query:
             raise Exception("No query provided.")
-        for q in sqlparse.parse(query):
-            if q.get_type() not in settings['ALLOWED_WRITE_VERBS']:
-                raise Exception('This server only accepts "Write" queries that begin with {}.'.format(settings['ALLOWED_WRITE_VERBS']))
+        # no sql parsing, if our chmod has write permission, allow all queries.
         connection = sqlite3.connect(segment.local_path())
         trough.sync.setup_connection(connection)
-        cursor = connection.cursor()
         try:
-            output = cursor.executescript(query.decode('utf-8'))
+            query = "BEGIN TRANSACTION;\n" + query + "COMMIT;\n"
+            output = connection.executescript(query.decode('utf-8'))
         finally:
-            cursor.close()
             connection.commit()
             connection.close()
         return b"OK"
