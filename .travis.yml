@@ -18,6 +18,6 @@ before_install:
 - sudo service docker restart ; sleep 10  # https://github.com/travis-ci/travis-ci/issues/4778
 - docker run -d --publish=28015:28015 rethinkdb
 install:
-- pip install . --no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/
+- pip install -e . --index-url https://devpi.archive.org/ait/packages/+simple/
 script:
 - py.test -v tests
