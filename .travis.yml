@@ -21,4 +21,4 @@ install:
 - pip install git+https://github.com/jkafader/snakebite@feature/python3-version-string
 - pip install -e . --no-input --upgrade
 script:
-- python -m inittest discover
+- python -m unittest discover
