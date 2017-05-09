@@ -16,7 +16,6 @@ setup(
         'License :: OSI Approved :: BSD License',
     ],
     install_requires=[
-        'consulate==0.6.0',
         'protobuf==3.1.0.post1',
         'PyYAML==3.12',
         'requests==2.12.4',
