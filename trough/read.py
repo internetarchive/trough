@@ -6,7 +6,6 @@ import ujson
 import os
 import sqlparse
 import logging
-import consulate
 import requests
 from contextlib import closing
 import urllib
