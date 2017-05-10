@@ -15,10 +15,10 @@ import doublethink
 
 class TestSegment(unittest.TestCase):
     def setUp(self):
-        sync.ensure_tables()
         self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        sync.ensure_tables(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
