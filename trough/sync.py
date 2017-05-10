@@ -59,16 +59,21 @@ class Assignment(doublethink.Document):
 class Lock(doublethink.Document):
     @classmethod
     def acquire(cls, rr, pk, document={}):
+        '''Acquire a lock. Raises an exception if the lock key exists.'''
         document["id"] = pk
         document["node"] = settings['HOSTNAME']
         document["acquired_on"] = r.now()
-        try:
-            rr.table(cls.table).insert(document).run()
-        except Exception as e:
-            raise LockException('Unable to acquire a lock for %s' % pk)
+        output = rr.table(cls.table).insert(document).run()
+        if output.get('errors'):
+            raise Exception('Unable to acquire a lock for id: "%s"' % pk)
         return cls(rr, d=document)
     def release(self):
-        return self.rr.table(self.table, read_mode='majority').get(self.pk).delete().run()
+        return self.rr.table(self.table, read_mode='majority').get(self.id).delete().run()
+
+def ensure_tables(rethinker):
+    Assignment.table_ensure(rethinker)
+    Lock.table_ensure(rethinker)
+
 
 class Segment(object):
     def __init__(self, segment_id, size, rethinker, services, registry):
@@ -96,8 +101,8 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS'](self.id)
         else:
             return settings['MINIMUM_ASSIGNMENTS']
-    def acquire_write_lock(self, host):
-        '''Raises exception if required parameter "host" is not provided. Raises exception if lock exists.'''
+    def acquire_write_lock(self):
+        '''Raises exception if lock exists.'''
         return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={})
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
@@ -529,10 +534,9 @@ def get_controller(server_mode):
     rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
     services = doublethink.ServiceRegistry(rethinker)
     registry = HostRegistry(rethinker=rethinker, services=services)
+    ensure_tables(rethinker)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
     snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-    Assignment.table_ensure(rethinker)
-    Lock.table_ensure(rethinker)
 
     if server_mode:
         controller = MasterSyncController(

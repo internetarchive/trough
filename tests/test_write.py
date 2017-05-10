@@ -9,7 +9,7 @@ import json
 import sqlite3
 from tempfile import NamedTemporaryFile
 
-class TestReadServer(unittest.TestCase):
+class TestWriteServer(unittest.TestCase):
     def setUp(self):
         self.server = write.WriteServer()
     def test_empty_write(self):
@@ -38,7 +38,7 @@ class TestReadServer(unittest.TestCase):
     def test_write(self):
         database_file = NamedTemporaryFile()
         segment = mock.Mock()
-        segment.segment_path = lambda: database_file.name
+        segment.local_path = lambda: database_file.name
         output = self.server.write(segment, b'CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));')
         output = self.server.write(segment, b'INSERT INTO test (test) VALUES ("test");')
         connection = sqlite3.connect(database_file.name)
@@ -48,13 +48,7 @@ class TestReadServer(unittest.TestCase):
             output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
         database_file.close()
         self.assertEqual(output, {'id': 1, 'test': 'test'})
-    @mock.patch('trough.write.consulate')
-    def test_write_failure_to_read_only_segment(self, consulate):
-        def Consul(*args, **kwargs):
-            consul = mock.Mock()
-            consul.kv = {}
-            return consul
-        consulate.Consul = Consul
+    def test_write_failure_to_read_only_segment(self):
         database_file = NamedTemporaryFile()
         segment = mock.Mock()
         segment.segment_path = lambda: database_file.name

@@ -9,6 +9,8 @@ import json
 import sqlite3
 from tempfile import NamedTemporaryFile
 from trough import sync
+from trough.settings import settings
+import doublethink
 
 class TestReadServer(unittest.TestCase):
     def setUp(self):
@@ -23,7 +25,7 @@ class TestReadServer(unittest.TestCase):
         connection.commit()
 
         segment = mock.Mock()
-        segment.segment_path = lambda: database_file.name
+        segment.local_path = lambda: database_file.name
 
         output = b""
         for part in self.server.read(segment, b'SELECT * FROM "test";'):
@@ -43,7 +45,7 @@ class TestReadServer(unittest.TestCase):
         output = b""
 
         segment = mock.Mock()
-        segment.segment_path = lambda: database_file.name
+        segment.local_path = lambda: database_file.name
 
         for part in self.server.read(segment, b'SELECT * FROM "test";'):
             output += part
@@ -80,7 +82,9 @@ class TestReadServer(unittest.TestCase):
         requests.post = post
         consul = mock.Mock()
         registry = mock.Mock()
-        segment = trough.sync.Segment(segment_id="TEST", consul=consul, registry=registry, size=0)
+        rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        services = doublethink.ServiceRegistry(rethinker)
+        segment = trough.sync.Segment(segment_id="TEST", rethinker=rethinker, services=services, registry=registry, size=0)
         output = self.server.proxy_for_write_host(segment, "SELECT * FROM mock;")
         self.assertEqual(output, ["test", "output"])
 

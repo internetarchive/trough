@@ -11,74 +11,129 @@ from collections import defaultdict
 import threading
 import datetime
 import time
+import doublethink
 
 class TestSegment(unittest.TestCase):
     def setUp(self):
-        self.consul = mock.Mock()
-        self.consul.kv = {}
-        self.registry = sync.HostRegistry(self.consul)
+        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.services = doublethink.ServiceRegistry(self.rethinker)
+        self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        self.rethinker.table("services").delete().run()
+        self.rethinker.table("lock").delete().run()
+        self.rethinker.table("assignment").delete().run()
     def test_host_key(self):
-        segment = sync.Segment(self.consul, 'test-segment', 100, self.registry)
+        segment = sync.Segment('test-segment',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
         key = segment.host_key('test-node')
-        self.assertEqual(key, 'test-node/test-segment')
+        self.assertEqual(key, 'test-node:test-segment')
     def test_all_copies(self):
-        consul = mock.Mock()
-        consul.kv.get = mock.Mock(return_value='100')
-        consul.kv.get_record = mock.Mock(return_value={"Full": "Record"})
-        self.consul.catalog.service = mock.Mock(return_value=[{"Node": "test-node"}])
-        segment = sync.Segment(consul, 'test-segment', 100, self.registry)
+        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        segment = sync.Segment('test-segment',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
+        registry.assign(hostname='test-pool', segment=segment, remote_path="/fake/path")
+        registry.commit_assignments()
         output = segment.all_copies()
-        self.assertEqual(output, ['test-node/test-segment'])
-        output = segment.all_copies(full_record=True)
-        self.assertEqual(output, [{"Full": "Record"}])
+        output = [item for item in output]
+        self.assertEqual(output[0]['id'], 'test-pool:test-segment')
     def test_readable_copies(self):
         consul = mock.Mock()
-        consul.catalog.service = mock.Mock(return_value=[{"Node": "test-segment.test-node"}])
-        segment = sync.Segment(consul, 'test-segment', 100, self.registry)
+        consul.catalog.service = mock.Mock(return_value=[{"node": "test-segment.test-node"}])
+        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        segment = sync.Segment('test-segment',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
+        registry.heartbeat(pool='trough-read',
+            node=settings['HOSTNAME'],
+            heartbeat_interval=0.1,
+            segment=segment.id)
         output = segment.readable_copies()
-        self.assertEqual(output, [{"Node": "test-segment.test-node"}])
+        output = list(output)
+        self.assertEqual(output[0]['node'], settings['HOSTNAME'])
     def test_is_assigned_to_host(self):
-        consul = mock.Mock()
-        consul.kv = { 'assigned/test-segment': 100 }
-        segment = sync.Segment(consul, 'test-segment', 100, self.registry)
+        segment = sync.Segment('test-segment',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
+        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        registry.assign(hostname='assigned', segment=segment, remote_path="/fake/path")
+        registry.commit_assignments()
         output = segment.is_assigned_to_host('not-assigned')
         self.assertFalse(output)
         output = segment.is_assigned_to_host('assigned')
         self.assertTrue(output)
     def test_minimum_assignments(self):
-        segment = sync.Segment(self.consul, '123456', 100, self.registry)
+        segment = sync.Segment('123456',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
         output = segment.minimum_assignments()
         self.assertEqual(output, 1)
-        segment = sync.Segment(self.consul, '228188', 100, self.registry)
+        segment = sync.Segment('228188',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
         output = segment.minimum_assignments()
         self.assertEqual(output, 2)
     def test_acquire_write_lock(self):
-        segment = sync.Segment(self.consul, '123456', 100, self.registry)
-        segment.acquire_write_lock('node01')
+        lock = sync.Lock.load(self.rethinker, 'write:lock:123456')
+        if lock:
+            lock.release()
+        segment = sync.Segment('123456',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
+        lock = segment.acquire_write_lock()
         with self.assertRaises(Exception):
-            segment.acquire_write_lock('node02')
+            segment.acquire_write_lock()
+        lock.release()
     def test_retrieve_write_lock(self):
-        segment = sync.Segment(self.consul, '123456', 100, self.registry)
-        segment.acquire_write_lock('node01')
-        output = segment.retrieve_write_lock()
-        self.assertEqual(output["Node"], "node01")
-        self.assertIn("Datestamp", output)
-    def test_release_write_lock(self):
-        segment = sync.Segment(self.consul, '123456', 100, self.registry)
-        segment.acquire_write_lock('node01')
-        segment.release_write_lock()
-        output = segment.retrieve_write_lock()
-        self.assertEqual(output, None)
+        lock = sync.Lock.load(self.rethinker, 'write:lock:123456')
+        if lock:
+            lock.release()
+        segment = sync.Segment('123456',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
+        output = segment.acquire_write_lock()
+        lock = segment.retrieve_write_lock()
+        self.assertEqual(lock["node"], settings['HOSTNAME'])
+        self.assertIn("acquired_on", lock)
+        lock.release()
     def test_local_path(self):
-        segment = sync.Segment(self.consul, '123456', 100, self.registry)
+        segment = sync.Segment('123456',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
         output = segment.local_path()
         self.assertEqual(output, os.path.join(settings['LOCAL_DATA'], '123456.sqlite'))
     def test_local_segment_exists(self):
-        segment = sync.Segment(self.consul, '123456', 100, self.registry)
+        segment = sync.Segment('123456',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
         output = segment.local_segment_exists()
         self.assertEqual(output, False)
     def test_provision_local_segment(self):
-        segment = sync.Segment(self.consul, '123456-test-database', 100, self.registry)
+        segment = sync.Segment('123456-test-database',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=self.registry,
+            size=100)
         if segment.local_segment_exists():
             os.remove(segment.local_path())
         output = segment.provision_local_segment()
@@ -94,35 +149,25 @@ class TestSegment(unittest.TestCase):
 
 class TestHostRegistry(unittest.TestCase):
     def setUp(self):
-        self.consul = mock.Mock()
-        class D(dict):
-            def find(self, arg, separator=None):
-                output = {}
-                for key in self.keys():
-                    if key.startswith(arg):
-                        output[key] = self[key]
-                if separator:
-                    return [val for val in output.values()]
-                else:
-                    return output
-        self.consul.kv = D({})
+        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.services = doublethink.ServiceRegistry(rethinker)
     def test_get_hosts(self):
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
         self.consul.catalog.service = service
         hostname = 'test.example.com'
-        registry = sync.HostRegistry(self.consul)
+        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         registry.register('trough-nodes', service_id='trough/nodes/%s' % hostname, tags=[hostname])
         output = registry.get_hosts()
-        self.assertEqual(output, [{"Node": "127.0.0.1"}])
+        self.assertEqual(output, [{"node": "127.0.0.1"}])
     def test_hosts_exist(self):
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -138,7 +183,7 @@ class TestHostRegistry(unittest.TestCase):
         self.consul.kv['127.0.0.1/seg2'] = '1024'
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -162,7 +207,7 @@ class TestHostRegistry(unittest.TestCase):
         self.consul.kv['127.0.0.2/seg4'] = 1024 * 1000
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name].append({ "Node": address })
+            services[name].append({ "node": address })
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -207,7 +252,7 @@ class TestHostRegistry(unittest.TestCase):
     def test_host_is_registered(self):
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -220,7 +265,7 @@ class TestHostRegistry(unittest.TestCase):
     def test_deregister(self):
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -295,12 +340,12 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(output, True)
         output = controller.hold_election()
         self.assertEqual(output, True)
-        services = {'trough-sync-master': [{ 'Node': 'nope' }]}
+        services = {'trough-sync-master': [{ 'node': 'nope' }]}
         output = controller.hold_election()
         self.assertEqual(output, False)
     def test_wait_to_become_leader(self):
         THREAD_DELAY = 0.1
-        services = {'trough-sync-master': [{ 'Node': 'nope' }]}
+        services = {'trough-sync-master': [{ 'node': 'nope' }]}
         def service(id):
             return services.get(id, [])
         self.consul.catalog.service = service
@@ -322,7 +367,7 @@ class TestMasterSyncController(unittest.TestCase):
         THREAD_DELAY = 0.1
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -357,7 +402,7 @@ class TestMasterSyncController(unittest.TestCase):
 
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name] = [{ "Node": address }]
+            services[name] = [{ "node": address }]
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -380,7 +425,7 @@ class TestMasterSyncController(unittest.TestCase):
         self.consul.kv['127.0.0.3'] = 1024 * 1024
         services = defaultdict(list)
         def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name].append({ "Node": address })
+            services[name].append({ "node": address })
         self.consul.agent.service.register = register
         def service(name):
             return services[name]
@@ -505,7 +550,7 @@ class TestLocalSyncController(unittest.TestCase):
         output = controller.copy_segment_from_hdfs(segment)
         self.assertEqual(output, True)
     def test_ensure_registered(self):
-        hosts = [{'Node': 'read01'}]
+        hosts = [{'node': 'read01'}]
         def get_hosts(*args, **kwargs):
             return hosts
         called = [False]

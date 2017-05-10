@@ -60,6 +60,7 @@ class ReadServer:
             services = doublethink.ServiceRegistry(rethinker)
             registry = trough.sync.HostRegistry(rethinker=rethinker, services=services)
             segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=rethinker, services=services, registry=registry)
+            trough.sync.ensure_tables(rethinker)
             query = env.get('wsgi.input').read()
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['Node'] != settings['HOSTNAME']:
