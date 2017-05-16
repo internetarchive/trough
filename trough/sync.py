@@ -54,7 +54,7 @@ class Assignment(doublethink.Document):
     def segment_assignments(cls, rr, segment):
         return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, index="segment").run())
     def unassign(self):
-        return self.rr.table(self.table).get(self.id).delete()
+        return self.rr.table(self.table).get(self.id).delete().run()
 
 class Lock(doublethink.Document):
     @classmethod
@@ -196,23 +196,43 @@ class HostRegistry(object):
             'bytes': segment.size })
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
         self.assignment_queue.enqueue(asmt)
+        return asmt
+    def commit_assignments(self):
+        self.assignment_queue.commit()
     def segments_for_host(self, host):
         assignments = Assignment.host_assignments(self.rethinker, host)
         segments = [Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self) for asmt in assignments]
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
-    def commit_assignments(self):
-        self.assignment_queue.commit()
 
 # Base class, not intended for use.
 class SyncController:
-    def __init__(self, rethinker=None, services=None, registry=None, snakebite_client=None):
+    def __init__(self, rethinker=None, services=None, registry=None, snakebite_client=None, hdfs_path=None):
         self.rethinker = rethinker
         self.services = services
         self.registry = registry
         self.snakebite_client = snakebite_client
         self.leader = False
         self.found_hosts = False
+
+        self.hostname = settings['HOSTNAME']
+        self.external_ip = settings['EXTERNAL_IP']
+        self.rethinkdb_hosts = settings['RETHINKDB_HOSTS']
+
+        self.hdfs_path = settings['HDFS_PATH']
+        self.hdfs_host = settings['HDFS_HOST']
+        self.hdfs_port = settings['HDFS_PORT']
+
+        self.election_cycle = settings['ELECTION_CYCLE']
+        self.sync_port = settings['SYNC_PORT']
+        self.read_port = settings['READ_PORT']
+        self.sync_loop_timing = settings['SYNC_LOOP_TIMING']
+
+        self.rethinkdb_hosts = settings['RETHINKDB_HOSTS']
+        self.host_check_wait_period = settings['HOST_CHECK_WAIT_PERIOD']
+
+        self.local_data = settings['LOCAL_DATA']
+        self.storage_in_bytes = settings['STORAGE_IN_BYTES']
     def check_config(self):
         raise Exception('Not Implemented')
     def get_segment_file_list(self):
@@ -235,7 +255,7 @@ class MasterSyncController(SyncController):
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
-            assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
+            assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
@@ -243,30 +263,30 @@ class MasterSyncController(SyncController):
         logging.info('Holding Sync Master Election...')
         candidate = { 
             "id": "trough-sync-master",
-            "node": settings['HOSTNAME'],
-            "heartbeat_interval": settings['ELECTION_CYCLE'] + settings['SYNC_LOOP_TIMING'] * 2,
+            "node": self.hostname,
+            "heartbeat_interval": self.election_cycle + self.sync_loop_timing * 2,
         }
         sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)
-        if sync_master.get('node') == settings['HOSTNAME']:
+        if sync_master.get('node') == self.hostname:
             # 'touch' the ttl check for sync master
-            logging.info('Still the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
+            logging.info('Still the master. I will check again in %ss' % self.election_cycle)
             return True
-        logging.info('I am not the master. I will check again in %ss' % settings['ELECTION_CYCLE'])
+        logging.info('I am not the master. I will check again in %ss' % self.election_cycle)
         return False
 
     def wait_to_become_leader(self):
-        # hold an election every settings['ELECTION_CYCLE'] seconds
+        # hold an election every self.election_cycle seconds
         self.leader = self.hold_election()
         while not self.leader:
             self.leader = self.hold_election()
             if not self.leader:
-                time.sleep(settings['ELECTION_CYCLE'])
+                time.sleep(self.election_cycle)
 
     def wait_for_hosts(self):
         while not self.found_hosts:
-            logging.info('Waiting for hosts to join cluster. Sleep period: %ss' % settings['HOST_CHECK_WAIT_PERIOD'])
+            logging.info('Waiting for hosts to join cluster. Sleep period: %ss' % self.host_check_wait_period)
             self.found_hosts = self.registry.hosts_exist()
-            time.sleep(settings['HOST_CHECK_WAIT_PERIOD'])
+            time.sleep(self.host_check_wait_period)
 
     def assign_segments(self):
         logging.info('Assigning segments...')
@@ -409,18 +429,18 @@ class MasterSyncController(SyncController):
         else:
             assigned_host = writable_copies[0]
         # make request to node to complete the local sync
-        post_url = 'http://%s:%s/' % (assigned_host['node'], settings['SYNC_PORT'])
+        post_url = 'http://%s:%s/' % (assigned_host['node'], self.sync_port)
         requests.post(post_url, segment_id)
         # create a new consul service
         self.registry.heartbeat(pool='trough-write',
             segment=segment_id,
             node=assigned_host['node'],
-            port=settings['WRITE_PORT'],
-            heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2))
+            port=self.write_port,
+            heartbeat_interval=round(self.sync_loop_timing * 2))
         # explicitly release provisioning lock (do nothing)
         lock.release()
         # return an http endpoint for POSTs
-        return "http://%s:%s/?segment=%s" % (assigned_host['node'], settings['WRITE_PORT'], segment_id)
+        return "http://%s:%s/?segment=%s" % (assigned_host['node'], self.write_port, segment_id)
 
     def decommission_writable_segment(self, service_id):
         logging.info('De-commissioning a writable segment: %s' % service_id)
@@ -436,8 +456,8 @@ class LocalSyncController(SyncController):
         try:
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
-            assert settings['READ_PORT'], "SYNC_PORT must be set. We need to know the output port."
-            assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOST must be set. Where can I contact RethinkDB on port 29015?"
+            assert settings['READ_PORT'], "READ_PORT must be set. We need to know the output port."
+            assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
@@ -457,8 +477,8 @@ class LocalSyncController(SyncController):
 
     def copy_segment_from_hdfs(self, segment):
         logging.info('copying segment %s from HDFS...' % segment.id)
-        source = [os.path.join(settings['HDFS_PATH'], "%s.sqlite" % segment.id)]
-        destination = settings['LOCAL_DATA']
+        source = [os.path.join(self.hdfs_path, "%s.sqlite" % segment.id)]
+        destination = self.local_data
         logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
         for f in self.snakebite_client.copyToLocal(source, destination):
             if f.get('error'):
@@ -472,12 +492,12 @@ class LocalSyncController(SyncController):
         # reset the countdown
         self.registry.heartbeat(pool='trough-nodes',
             node=self.hostname,
-            heartbeat_interval=round(settings['SYNC_LOOP_TIMING'] * 2),
-            available_bytes=settings['STORAGE_IN_BYTES']
+            heartbeat_interval=round(self.sync_loop_timing * 2),
+            available_bytes=self.storage_in_bytes
         )
 
     def sync_segments(self):
-        segment_health_ttl = settings['SYNC_LOOP_TIMING'] * 2
+        segment_health_ttl = self.sync_loop_timing * 2
         for segment in self.registry.segments_for_host(self.hostname):
             exists = segment.local_segment_exists()
             matches_hdfs = self.check_segment_matches_hdfs(segment)
@@ -499,7 +519,7 @@ class LocalSyncController(SyncController):
         # get the current write lock if any
         lock_data = segment.retrieve_write_lock()
         if not lock_data:
-            lock_data = segment.acquire_write_lock(settings['HOSTNAME'])
+            lock_data = segment.acquire_write_lock()
         # check that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
