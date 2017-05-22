@@ -25,3 +25,5 @@ install:
 - pip install -e . --no-input --upgrade
 script:
 - python -m unittest discover
+notifications:
+    slack: internetarchive:PLZQTqR7RpyGNr1jb1TgMqhK
