@@ -14,4 +14,4 @@ def application(env, start_response):
         return output.encode('utf-8')
     except Exception as e:
         start_response('500 Server Error', [('Content-Type', 'text/plain')])
-        return [b'500 Server Error: %s' % str(e).encode('utf-8')]
+        return [('500 Server Error: %s' % str(e)).encode('utf-8')]
