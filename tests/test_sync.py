@@ -197,26 +197,19 @@ class TestHostRegistry(unittest.TestCase):
         0 means that no segments will be reassigned. A ratio of 1 means that all segments
         will be reassigned. Numbers in between mean that segments will be reassigned from the
         highest-loaded to the lowest-loaded host until the target is achieved.'''
-        # TODO: re-implement this test, after fixing the above.
-        return None
-        self.consul.kv['127.0.0.1'] = 1024 * 1024
-        self.consul.kv['127.0.0.1/seg1'] = 1024
-        self.consul.kv['127.0.0.1/seg2'] = 1024
-        self.consul.kv['127.0.0.2'] = 1024 * 1024
-        self.consul.kv['127.0.0.2/seg3'] = 1024
-        self.consul.kv['127.0.0.2/seg4'] = 1024 * 1000
-        services = defaultdict(list)
-        def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name].append({ "node": address })
-        self.consul.agent.service.register = register
-        def service(name):
-            return services[name]
-        self.consul.catalog.service = service
-        registry = sync.HostRegistry(self.consul)
-        hostname = 'test.example.com'
-        registry.register('trough-nodes', service_id='trough/nodes/%s' % hostname, tags=[hostname], address='127.0.0.1')
-        hostname = 'test2.example.com'
-        registry.register('trough-nodes', service_id='trough/nodes/%s' % hostname, tags=[hostname], address='127.0.0.2')
+        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        test1 = 'test1.example.com'
+        test2 = 'test2.example.com'
+        registry.heartbeat(pool='trough-nodes',
+            service_id='trough:nodes:%s' % test1,
+            node=test1,
+            heartbeat_interval=0.2,
+            available_bytes=1024*1024)
+        registry.heartbeat(pool='trough-nodes',
+            service_id='trough:nodes:%s' % test2,
+            node=test2,
+            heartbeat_interval=0.2,
+            available_bytes=1024*1024)
         # zero segments
         output = registry.min_acceptable_load_ratio(registry.host_load(), 0)
         self.assertEqual(output, 0)
@@ -224,29 +217,27 @@ class TestHostRegistry(unittest.TestCase):
         output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 1000)
         self.assertEqual(output, 0)
         # a few segments, exactly the same size, clear ratio to load
-        self.consul.kv['127.0.0.1/seg1'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg2'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg5'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg6'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg3'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg4'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg7'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg8'] = 1024 * 128
+        for i in range(0, 8):
+            segment = sync.Segment('test-segment-%s' % i,
+                services=self.services,
+                rethinker=self.rethinker,
+                registry=registry,
+                size=1024 * 128)
+            registry.assign(hostname=test2 if i > 4 else test1, segment=segment, remote_path='/fake/path')
+        registry.commit_assignments()
         output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 128)
         self.assertEqual(output, 0.375)
+        # delete all assignments
+        self.rethinker.table("assignment").delete().run()
         # a few segments, sized reasonably in re: the load
-        for key in [key for key in self.consul.kv]:
-            if "/" in key:
-                del self.consul.kv[key]
-        self.consul.kv['127.0.0.1/seg1'] = 1024 * 200
-        self.consul.kv['127.0.0.1/seg2'] = 1024 * 200
-        self.consul.kv['127.0.0.1/seg5'] = 1024 * 200
-        self.consul.kv['127.0.0.1/seg6'] = 1024 * 200
-        self.consul.kv['127.0.0.1/seg7'] = 1024 * 200
-        self.consul.kv['127.0.0.2/seg3'] = 1024 * 200
-        self.consul.kv['127.0.0.2/seg4'] = 1024 * 400
-        self.consul.kv['127.0.0.2/seg8'] = 1024 * 200
-        self.consul.kv['127.0.0.2/seg9'] = 1024 * 200
+        for i in range(0, 9):
+            segment = sync.Segment('test-segment-%s' % i,
+                services=self.services,
+                rethinker=self.rethinker,
+                registry=registry,
+                size=1024 * 400 if i == 6 else 1024 * 200)
+            registry.assign(hostname=test2 if i > 5 else test1, segment=segment, remote_path='/fake/path')
+        registry.commit_assignments()
         output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 400)
         self.assertTrue(output > 0)
     def test_heartbeat(self):
