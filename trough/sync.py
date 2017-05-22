@@ -32,8 +32,8 @@ class AssignmentQueue:
         if self.length() >= 1000:
             self.commit()
     def commit(self):
-        self._queue
         self.rethinker.table('assignment').insert(self._queue).run();
+        del self._queue[:]
     def length(self):
         return len(self._queue)
 
@@ -143,7 +143,7 @@ class HostRegistry(object):
         for service in self.services.available_services('trough-nodes'):
             if service['node'] == node:
                 return service.get('available_bytes')
-        return 0
+        raise Exception('Could not find node "%s"' % node)
     def host_load(self):
         logging.info('Beginning Host Load Calculation...')
         output = []
@@ -330,6 +330,7 @@ class MasterSyncController(SyncController):
         nonfull_nonunderloaded_hosts = [host for host in hosts if not (host['load_ratio'] < min_acceptable_load and host['remaining_bytes'] <= largest_segment_size)]
         # sort hosts descending
         sorted_hosts = sorted(nonfull_nonunderloaded_hosts, key=lambda host: host['load_ratio'], reverse=True)
+        #print("sorted hosts: %s" % sorted_hosts)
         queue = []
         assignment_cache = {}
         last_reassignment = None
@@ -339,13 +340,14 @@ class MasterSyncController(SyncController):
             underloaded_host = sorted_hosts[-1]
             # if we haven't seen this host before, cache a list of its segments
             if top_host['node'] not in assignment_cache:
-                assignment_cache[top_host['node']] = Assignment.host_assignments(self.rethinker, top_host['node'])
+                assignment_cache[top_host['node']] = [asmt for asmt in Assignment.host_assignments(self.rethinker, top_host['node'])]
                 # shuffle segment order so when we .pop() it selects a random segment.
                 random.shuffle(assignment_cache[top_host['node']])
             # pick a segment assigned to the top-loaded host
+            #print("assignment_cache[top_host['node']]: %s " % assignment_cache[top_host['node']])
             reassign_from = assignment_cache[top_host['node']].pop()
             segment_name = reassign_from.segment
-            reassign_to = Assignment(rr, d={
+            reassign_to = Assignment(self.rethinker, d={
                 'host': underloaded_host['node'],
                 'segment': reassign_from.segment,
                 'assigned_on': r.now(),
@@ -359,7 +361,7 @@ class MasterSyncController(SyncController):
                 continue
             last_reassignment = reassign_from
             # if this segment is already assigned to the bottom loaded host, put it back in at the top of the list and loop.
-            if Assignment.load(self.rethinker, "%s:%s" % reassign_to.host, reassign_to.segment):
+            if Assignment.load(self.rethinker, "%s:%s" % (reassign_to.host, reassign_to.segment)):
                 assignment_cache[top_host['node']].insert(0, reassign_from)
                 continue
             # enqueue segment

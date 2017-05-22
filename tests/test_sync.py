@@ -240,6 +240,7 @@ class TestHostRegistry(unittest.TestCase):
         registry.commit_assignments()
         output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 400)
         self.assertTrue(output > 0)
+        self.rethinker.table("assignment").delete().run()
     def test_heartbeat(self):
         '''This function unusually produces indeterminate output.'''
         hostname = 'test.example.com'
@@ -385,28 +386,41 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(len(assignments), 1)
         self.assertEqual(assignments[0]['bytes'], 1024 * 1000)
     def test_rebalance_hosts(self):
-        # TODO: re-implement this test, after fixing the above.
-        return None
-        self.consul.kv['127.0.0.1'] = 1024 * 1024
-        self.consul.kv['127.0.0.1/seg1'] = 1024
-        self.consul.kv['127.0.0.1/seg2'] = 1024
-        self.consul.kv['127.0.0.2'] = 1024 * 1024
-        self.consul.kv['127.0.0.2/seg3'] = 1024
-        self.consul.kv['127.0.0.2/seg4'] = 1024 * 1000
-        self.consul.kv['127.0.0.3'] = 1024 * 1024
-        services = defaultdict(list)
-        def register(name, service_id="", address=None, port=0, tags=[], ttl=None):
-            services[name].append({ "node": address })
-        self.consul.agent.service.register = register
-        def service(name):
-            return services[name]
-        self.consul.catalog.service = service
-        hostname = 'test.example.com'
-        self.registry.register('trough-nodes', service_id='trough/nodes/%s' % hostname, tags=[hostname], address='127.0.0.1')
-        hostname = 'test2.example.com'
-        self.registry.register('trough-nodes', service_id='trough/nodes/%s' % hostname, tags=[hostname], address='127.0.0.2')
-        hostname = 'test3.example.com'
-        self.registry.register('trough-nodes', service_id='trough/nodes/%s' % hostname, tags=[hostname], address='127.0.0.3')
+        self.rethinker.table("assignment").delete().run()
+        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        hosts = ['test1.example.com','test2.example.com','test3.example.com']
+        for host in hosts:
+            registry.heartbeat(pool='trough-nodes',
+                service_id='trough:nodes:%s' % host,
+                node=host,
+                heartbeat_interval=1,
+                available_bytes=1024*1024)
+        segment = sync.Segment('test-segment-1',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=registry,
+            size=1024)
+        registry.assign(hostname=hosts[0], segment=segment, remote_path="/fake/path")
+        segment = sync.Segment('test-segment-2',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=registry,
+            size=1024)
+        registry.assign(hostname=hosts[0], segment=segment, remote_path="/fake/path")
+        segment = sync.Segment('test-segment-3',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=registry,
+            size=1024)
+        registry.assign(hostname=hosts[1], segment=segment, remote_path="/fake/path")
+        segment = sync.Segment('test-segment-4',
+            services=self.services,
+            rethinker=self.rethinker,
+            registry=registry,
+            size=1024 * 1000)
+        registry.assign(hostname=hosts[1], segment=segment, remote_path="/fake/path")
+        registry.commit_assignments()
+
         record_list = []
         def ls(*args, **kwargs):
             for record in record_list:
@@ -419,9 +433,10 @@ class TestMasterSyncController(unittest.TestCase):
             registry=self.registry,
             snakebite_client=self.snakebite_client)
         controller.rebalance_hosts()
-        self.assertEqual(len(self.consul.kv.find('127.0.0.3')), 1)
+        self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 0)
         # equal load
         record_list = [
+            {'length': 1024 * 128, 'path': '/seg0.sqlite'},
             {'length': 1024 * 128, 'path': '/seg1.sqlite'},
             {'length': 1024 * 128, 'path': '/seg2.sqlite'},
             {'length': 1024 * 128, 'path': '/seg3.sqlite'},
@@ -430,20 +445,17 @@ class TestMasterSyncController(unittest.TestCase):
             {'length': 1024 * 128, 'path': '/seg6.sqlite'},
             {'length': 1024 * 128, 'path': '/seg7.sqlite'},
             {'length': 1024 * 128, 'path': '/seg8.sqlite'},
+            {'length': 1024 * 128, 'path': '/seg9.sqlite'},
         ]
-        for key in [key for key in self.consul.kv]:
-            if "/" in key:
-                del self.consul.kv[key]
-        self.consul.kv['127.0.0.1/seg1'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg2'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg5'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg6'] = 1024 * 128
-        self.consul.kv['127.0.0.1/seg9'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg3'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg4'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg7'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg8'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg0'] = 1024 * 128
+        self.rethinker.table("assignment").delete().run()
+        for i in range(0, 10):
+            segment = sync.Segment('test-segment-%s' % i,
+                services=self.services,
+                rethinker=self.rethinker,
+                registry=registry,
+                size=1024 * 128)
+            registry.assign(hostname=hosts[i%2], segment=segment, remote_path='/seg%s.sqlite' % i)
+        registry.commit_assignments()
         host_load = self.registry.host_load()
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
@@ -451,7 +463,7 @@ class TestMasterSyncController(unittest.TestCase):
             registry=self.registry,
             snakebite_client=self.snakebite_client)
         controller.rebalance_hosts()
-        self.assertEqual(len(self.consul.kv.find('127.0.0.3')), 4)
+        self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 3)
         # one segment much larger than others
         record_list = [
             {'length': 1024 * 1000, 'path': '/seg1.sqlite'},
@@ -461,15 +473,15 @@ class TestMasterSyncController(unittest.TestCase):
             {'length': 1024 * 128, 'path': '/seg5.sqlite'},
             {'length': 1024 * 128, 'path': '/seg6.sqlite'},
         ]
-        for key in [key for key in self.consul.kv]:
-            if "/" in key:
-                del self.consul.kv[key]
-        self.consul.kv['127.0.0.1/seg1'] = 1024 * 1000
-        self.consul.kv['127.0.0.2/seg2'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg3'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg4'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg5'] = 1024 * 128
-        self.consul.kv['127.0.0.2/seg6'] = 1024 * 128
+        self.rethinker.table("assignment").delete().run()
+        for i in range(0, 6):
+            segment = sync.Segment('test-segment-%s' % i,
+                services=self.services,
+                rethinker=self.rethinker,
+                registry=registry,
+                size=1024 * 1000 if i == 0 else 1024 * 128)
+            registry.assign(hostname=hosts[1] if i == 0 else hosts[0], segment=segment, remote_path='/fake/path')
+        registry.commit_assignments()
         host_load = self.registry.host_load()
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
@@ -477,7 +489,8 @@ class TestMasterSyncController(unittest.TestCase):
             registry=self.registry,
             snakebite_client=self.snakebite_client)
         controller.rebalance_hosts()
-        self.assertEqual(len(self.consul.kv.find('127.0.0.3')), 1)
+        self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 0)
+        self.rethinker.table("assignment").delete().run()
 
     def test_sync(self):
         pass
