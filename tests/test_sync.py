@@ -53,7 +53,7 @@ class TestSegment(unittest.TestCase):
             size=100)
         registry.heartbeat(pool='trough-read',
             node=settings['HOSTNAME'],
-            heartbeat_interval=0.1,
+            ttl=0.4,
             segment=segment.id)
         output = segment.readable_copies()
         output = list(output)
@@ -159,14 +159,14 @@ class TestHostRegistry(unittest.TestCase):
     def test_get_hosts(self):
         hostname = 'test.example.com'
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        registry.heartbeat(pool='trough-nodes', service_id='trough:nodes:%s' % hostname, node=hostname, heartbeat_interval=0.2)
+        registry.heartbeat(pool='trough-nodes', service_id='trough:nodes:%s' % hostname, node=hostname, ttl=0.6)
         output = registry.get_hosts()
         self.assertEqual(output[0]['node'], "test.example.com")
     def test_hosts_exist(self):
         hostname = 'test.example.com'
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         self.assertEqual(registry.hosts_exist(), False)
-        registry.heartbeat(pool='trough-nodes', service_id='trough:nodes:%s' % hostname, node=hostname, heartbeat_interval=0.2)
+        registry.heartbeat(pool='trough-nodes', service_id='trough:nodes:%s' % hostname, node=hostname, ttl=0.6)
         self.assertEqual(registry.hosts_exist(), True)
     def test_host_load(self):
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
@@ -174,7 +174,7 @@ class TestHostRegistry(unittest.TestCase):
         registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % hostname,
             node=hostname,
-            heartbeat_interval=0.2,
+            ttl=0.6,
             available_bytes=1024*1024)
         segment = sync.Segment('test-segment-1',
             services=self.services,
@@ -203,12 +203,12 @@ class TestHostRegistry(unittest.TestCase):
         registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % test1,
             node=test1,
-            heartbeat_interval=0.2,
+            ttl=0.6,
             available_bytes=1024*1024)
         registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % test2,
             node=test2,
-            heartbeat_interval=0.2,
+            ttl=0.6,
             available_bytes=1024*1024)
         # zero segments
         output = registry.min_acceptable_load_ratio(registry.host_load(), 0)
@@ -248,7 +248,7 @@ class TestHostRegistry(unittest.TestCase):
         registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % hostname,
             node=hostname,
-            heartbeat_interval=0.1,
+            ttl=0.3,
             available_bytes=1024*1024)
         hosts = registry.get_hosts()
         self.assertEqual(hosts[0]["node"], hostname)
@@ -347,7 +347,7 @@ class TestMasterSyncController(unittest.TestCase):
             self.registry.heartbeat(pool='trough-nodes',
                 service_id='trough:nodes:%s' % hostname,
                 node=hostname,
-                heartbeat_interval=0.1,
+                ttl=0.3,
                 available_bytes=1024*1024)
         t = threading.Thread(target=register_host)
         t.start()
@@ -378,7 +378,7 @@ class TestMasterSyncController(unittest.TestCase):
         self.registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % hostname,
             node=hostname,
-            heartbeat_interval=0.1,
+            ttl=0.3,
             available_bytes=1024*1024)
         controller = self.get_local_controller()
         controller.assign_segments()
@@ -393,7 +393,7 @@ class TestMasterSyncController(unittest.TestCase):
             registry.heartbeat(pool='trough-nodes',
                 service_id='trough:nodes:%s' % host,
                 node=host,
-                heartbeat_interval=1,
+                ttl=3,
                 available_bytes=1024*1024)
         segment = sync.Segment('test-segment-1',
             services=self.services,

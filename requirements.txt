@@ -5,5 +5,5 @@ six==1.10.0
 git+https://github.com/jkafader/snakebite.git@feature/python3
 ujson==1.35
 sqlparse==0.2.2
-uWSGI==2.0.14
-doublethink==0.2.0.dev73
+uWSGI==2.0.15
+git+https://github.com/internetarchive/doublethink.git@master

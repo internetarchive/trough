@@ -175,16 +175,16 @@ class HostRegistry(object):
         acceptable_load_deviation = min((largest_segment_size / average_capacity), average_load_ratio)
         min_acceptable_load = average_load_ratio - acceptable_load_deviation
         return min_acceptable_load
-    def heartbeat(self, pool=None, node=None, heartbeat_interval=None, **doc):
-        if None in [pool, node, heartbeat_interval]:
-            raise Exception('"pool", "node" and "heartbeat_interval" are required arguments.')
+    def heartbeat(self, pool=None, node=None, ttl=None, **doc):
+        if None in [pool, node, ttl]:
+            raise Exception('"pool", "node" and "ttl" are required arguments.')
         doc['id'] = "%s:%s:%s" % (pool, node, doc.get('segment'))
         logging.info("Setting Heartbeat ID to [%s]" % doc['id'])
         doc['role'] = pool
         doc['node'] = node
-        doc['heartbeat_interval'] = heartbeat_interval
+        doc['ttl'] = ttl
         doc['load'] = os.getloadavg()[1] # load average over last 5 mins
-        logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with heartbeat interval %s' % (pool, node, node, doc.get('port'), heartbeat_interval))
+        logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with heartbeat interval %s' % (pool, node, node, doc.get('port'), ttl))
         self.services.heartbeat(doc)
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
@@ -264,7 +264,7 @@ class MasterSyncController(SyncController):
         candidate = { 
             "id": "trough-sync-master",
             "node": self.hostname,
-            "heartbeat_interval": self.election_cycle + self.sync_loop_timing * 2,
+            "ttl": self.election_cycle + self.sync_loop_timing * 4,
         }
         sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)
         if sync_master.get('node') == self.hostname:
@@ -438,7 +438,7 @@ class MasterSyncController(SyncController):
             segment=segment_id,
             node=assigned_host['node'],
             port=self.write_port,
-            heartbeat_interval=round(self.sync_loop_timing * 2))
+            ttl=round(self.sync_loop_timing * 4))
         # explicitly release provisioning lock (do nothing)
         lock.release()
         # return an http endpoint for POSTs
@@ -494,12 +494,12 @@ class LocalSyncController(SyncController):
         # reset the countdown
         self.registry.heartbeat(pool='trough-nodes',
             node=self.hostname,
-            heartbeat_interval=round(self.sync_loop_timing * 2),
+            ttl=round(self.sync_loop_timing * 4),
             available_bytes=self.storage_in_bytes
         )
 
     def sync_segments(self):
-        segment_health_ttl = self.sync_loop_timing * 2
+        segment_health_ttl = self.sync_loop_timing * 4
         for segment in self.registry.segments_for_host(self.hostname):
             exists = segment.local_segment_exists()
             matches_hdfs = self.check_segment_matches_hdfs(segment)
@@ -509,7 +509,7 @@ class LocalSyncController(SyncController):
             self.registry.heartbeat(pool='trough-read',
                 segment=segment.id,
                 node=self.hostname,
-                heartbeat_interval=segment_health_ttl)
+                ttl=segment_health_ttl)
 
     def provision_writable_segment(self, segment_id):
         # instantiate the segment
