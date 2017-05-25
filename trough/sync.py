@@ -438,6 +438,7 @@ class MasterSyncController(SyncController):
             segment=segment_id,
             node=assigned_host['node'],
             port=self.write_port,
+            url='http://%s:%s/?segment=%s' % (assigned_host['node'], self.write_port, segment_id),
             ttl=round(self.sync_loop_timing * 4))
         # explicitly release provisioning lock (do nothing)
         lock.release()
@@ -509,6 +510,8 @@ class LocalSyncController(SyncController):
             self.registry.heartbeat(pool='trough-read',
                 segment=segment.id,
                 node=self.hostname,
+                port=self.read_port,
+                url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment_id),
                 ttl=segment_health_ttl)
 
     def provision_writable_segment(self, segment_id):
