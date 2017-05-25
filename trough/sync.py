@@ -511,7 +511,7 @@ class LocalSyncController(SyncController):
                 segment=segment.id,
                 node=self.hostname,
                 port=self.read_port,
-                url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment_id),
+                url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment.id),
                 ttl=segment_health_ttl)
 
     def provision_writable_segment(self, segment_id):
