@@ -264,6 +264,8 @@ class MasterSyncController(SyncController):
         candidate = { 
             "id": "trough-sync-master",
             "node": self.hostname,
+            "port": self.sync_port,
+            "url": "http://%s:%s/" % (self.hostname, self.sync_port),
             "ttl": self.election_cycle + self.sync_loop_timing * 4,
         }
         sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)
