@@ -29,15 +29,17 @@ class ReadServer:
         # if the user sent more than one query, or the query is not a SELECT, raise an exception.
         if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
             raise Exception('Exactly one SELECT query per request, please.')
+        logging.info("Connecting to sqlite database: {segment}".format(segment=segment.local_path()))
         connection = sqlite3.connect(segment.local_path())
         trough.sync.setup_connection(connection)
         cursor = connection.cursor()
         first = True
         try:
-            self.start_response('200 OK', [('Content-Type','application/json')])
-            yield b"["
             for row in cursor.execute(query.decode('utf-8')):
-                if not first:
+                if first:
+                    self.start_response('200 OK', [('Content-Type','application/json')])
+                    yield b"["
+                else:
                     yield b",\n"
                 output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
                 yield ujson.dumps(output).encode('utf-8')
@@ -47,6 +49,8 @@ class ReadServer:
             # close the cursor 'finally', in case there is an Exception.
             cursor.close()
             cursor.connection.close()
+        if first:
+            raise Exception("No data returned")
 
     # uwsgi endpoint
     def __call__(self, env, start_response):
@@ -54,7 +58,7 @@ class ReadServer:
         try:
             query_dict = urllib.parse.parse_qs(env['QUERY_STRING'])
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
-            segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split(".")[0])
+            segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split("."))[0]
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
             rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
             services = doublethink.ServiceRegistry(rethinker)
