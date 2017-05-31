@@ -207,11 +207,10 @@ class HostRegistry(object):
 
 # Base class, not intended for use.
 class SyncController:
-    def __init__(self, rethinker=None, services=None, registry=None, snakebite_client=None, hdfs_path=None):
+    def __init__(self, rethinker=None, services=None, registry=None, hdfs_path=None):
         self.rethinker = rethinker
         self.services = services
         self.registry = registry
-        self.snakebite_client = snakebite_client
         self.leader = False
         self.found_hosts = False
 
@@ -237,9 +236,11 @@ class SyncController:
         raise Exception('Not Implemented')
     def get_segment_file_list(self):
         logging.info('Getting segment list...')
-        return self.snakebite_client.ls([settings['HDFS_PATH']])
+        snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+        return snakebite_client.ls([settings['HDFS_PATH']])
     def get_segment_file_size(self, segment):
-        sizes = [file['length'] for file in self.snakebite_client.ls([segment.remote_path()])]
+        snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+        sizes = [file['length'] for file in snakebite_client.ls([segment.remote_path()])]
         if len(sizes) > 1:
             raise Exception('Received more than one file listing.')
         return sizes[0]
@@ -485,7 +486,8 @@ class LocalSyncController(SyncController):
         source = [os.path.join(self.hdfs_path, "%s.sqlite" % segment.id)]
         destination = self.local_data
         logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
-        for f in self.snakebite_client.copyToLocal(source, destination):
+        snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+        for f in snakebite_client.copyToLocal(source, destination):
             if f.get('error'):
                 logging.error('Error: %s' % f['error'])
                 raise Exception('Copying HDFS file %s to local destination %s produced an error: "%s"' % (source, destination, f['error']))
@@ -563,19 +565,16 @@ def get_controller(server_mode):
     registry = HostRegistry(rethinker=rethinker, services=services)
     ensure_tables(rethinker)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
-    snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
 
     if server_mode:
         controller = MasterSyncController(
             rethinker=rethinker,
             services=services,
-            registry=registry,
-            snakebite_client=snakebite_client)
+            registry=registry)
     else:
         controller = LocalSyncController(
             rethinker=rethinker,
             services=services,
-            registry=registry,
-            snakebite_client=snakebite_client)
+            registry=registry)
 
     return controller
