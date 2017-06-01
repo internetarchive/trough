@@ -34,23 +34,21 @@ class ReadServer:
         trough.sync.setup_connection(connection)
         cursor = connection.cursor()
         first = True
+        cursor.execute(query.decode('utf-8'))
+        self.start_response('200 OK', [('Content-Type','application/json')])
+        yield b"["
         try:
-            for row in cursor.execute(query.decode('utf-8')):
-                if first:
-                    self.start_response('200 OK', [('Content-Type','application/json')])
-                    yield b"["
-                else:
+            for row in cursor.fetchall():
+                if not first:
                     yield b",\n"
                 output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
-                yield ujson.dumps(output).encode('utf-8')
+                yield ujson.dumps(output, escape_forward_slashes=False).encode('utf-8')
                 first = False
             yield b"]"
         finally:
             # close the cursor 'finally', in case there is an Exception.
             cursor.close()
             cursor.connection.close()
-        if first:
-            raise Exception("No data returned")
 
     # uwsgi endpoint
     def __call__(self, env, start_response):
