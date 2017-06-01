@@ -344,7 +344,9 @@ class MasterSyncController(SyncController):
         hosts = self.registry.host_load()
         largest_segment_size = 0
         segment_file_list = self.get_segment_file_list()
+        segment_count = 0
         for segment in segment_file_list:
+            segment_count += 1
             if segment['length'] > largest_segment_size:
                 largest_segment_size = segment['length']
         logging.info('Found a largest segment size of %s bytes' % largest_segment_size)
@@ -357,7 +359,9 @@ class MasterSyncController(SyncController):
         queue = []
         assignment_cache = {}
         last_reassignment = None
-        while sorted_hosts[-1]['load_ratio'] < min_acceptable_load and len(sorted_hosts) >= 2:
+        counter = 0
+        while sorted_hosts[-1]['load_ratio'] < min_acceptable_load and len(sorted_hosts) >= 2 and counter < segment_count:
+            counter += 1
             logging.info("Looping while the least-loaded host's load ratio (%s) is less than %s and there are at least 2 hosts to assign from/to (there are %s)" % (sorted_hosts[-1]['load_ratio'], min_acceptable_load, sorted_hosts))
             # get the top-loaded host
             top_host = sorted_hosts[0]
