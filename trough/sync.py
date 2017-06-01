@@ -93,7 +93,7 @@ class Segment(object):
         ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
         return Assignment.segment_assignments(self.rethinker, self.id)
     def readable_copies_query(self):
-        return get_healthy_services_query(self.rethinker, role='trough-read').filter({ 'segment': self.id })
+        return healthy_services_query(self.rethinker, role='trough-read').filter({ 'segment': self.id })
     def readable_copies(self):
         '''returns the 'up' copies of this segment to read from, per rethinkdb.'''
         return self.readable_copies_query().run()
@@ -101,7 +101,7 @@ class Segment(object):
         '''returns the count of 'up' copies of this segment to read from, per rethinkdb.'''
         return self.readable_copies_query().count().run()
     def writable_copies_query(self):
-        return get_healthy_services_query(self.rethinker, role='trough-write').filter({ 'segment': self.id })
+        return healthy_services_query(self.rethinker, role='trough-write').filter({ 'segment': self.id })
     def writable_copies(self):
         '''returns the 'up' copies of this segment to write to, per rethinkdb.'''
         return self.writable_copies_query().run()
