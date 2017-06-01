@@ -15,6 +15,11 @@ import requests
 import datetime
 import sqlite3
 
+def healthy_services_query(rethinker, role):
+    return rethinker.table('services').filter({"role": role}).filter(
+        lambda svc: r.now().sub(svc["last_heartbeat"]) < 3 * svc["heartbeat_interval"]
+    )
+
 def setup_connection(conn):
     def regexp(expr, item):
         if item is None:
@@ -87,12 +92,22 @@ class Segment(object):
     def all_copies(self):
         ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
         return Assignment.segment_assignments(self.rethinker, self.id)
+    def readable_copies_query(self):
+        return get_healthy_service_query(self.rethinker, role='trough-read').filter({ 'segment': self.id })
     def readable_copies(self):
-        '''returns the 'up' copies of this segment to read from, per consul.'''
-        return (copy for copy in self.services.available_services('trough-read') if copy['segment'] == self.id)
+        '''returns the 'up' copies of this segment to read from, per rethinkdb.'''
+        return self.readable_copies_query().run()
+    def readable_copies_count(self):
+        '''returns the count of 'up' copies of this segment to read from, per rethinkdb.'''
+        return self.readable_copies_query().count().run()
+    def writable_copies_query(self):
+        return get_healthy_service_query(self.rethinker, role='trough-write').filter({ 'segment': self.id })
     def writable_copies(self):
-        '''returns the 'up' copies of this segment to write to, per consul.'''
-        return (copy for copy in self.services.available_services('trough-write') if copy['segment'] == self.id)
+        '''returns the 'up' copies of this segment to write to, per rethinkdb.'''
+        return self.writable_copies_query().run()
+    def writable_copies_count(self):
+        '''returns the count of 'up' copies of this segment to write to, per rethinkdb.'''
+        return self.writable_copies_query().count().run()
     def is_assigned_to_host(self, host):
         return bool(Assignment.load(self.rethinker, self.host_key(host)))
     def minimum_assignments(self):
@@ -299,13 +314,13 @@ class MasterSyncController(SyncController):
             segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=file['length'])
             assignment_count = len([1 for cpy in segment.all_copies()])
             logging.info("Checking segment [%s]:  %s assignments of %s minimum assignments." % (segment.id, assignment_count, segment.minimum_assignments()))
-            if not assignment_count >= segment.minimum_assignments():
+            if assignment_count < segment.minimum_assignments():
                 host_load = self.registry.host_load()
                 logging.info('Calculated Host Load: %s' % host_load)
                 emptiest_host = sorted(host_load, key=lambda host: host['assigned_bytes'])[0]
                 # assign the byte count of the file to a key named, e.g. /hostA/segment
                 self.registry.assign(emptiest_host['node'], segment, remote_path=file['path'])
-            else:
+            elif assignment_count > segment.minimum_assignments():
                 # If we find too many 'up' copies
                 if len([1 for cpy in segment.readable_copies()]) > segment.minimum_assignments():
                     # delete the copy with the lowest 'assigned_on', which records the
@@ -314,8 +329,12 @@ class MasterSyncController(SyncController):
                     assignments = sorted(assignments, key=lambda record: record['assigned_on'])
                     # remove the assignment
                     assignments[0].unassign()
-            writable_copies = [copy for copy in segment.writable_copies()]
-            if writable_copies:
+            # TODO: writable copies should not be automatically decommissioned when a read-only copy is available.
+            # (the read-only copy could have been the starting point for the writable segment)
+            # instead, do date math on the mtimes (?) to figure out which copy is newer, with any newer copy being
+            # considered the canonical copy.
+            writable_copies_count = segment.writable_copies_count()
+            if writable_copies_count > 0:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(writable_copies[0].get('id'))
         self.registry.commit_assignments()
@@ -328,16 +347,18 @@ class MasterSyncController(SyncController):
         for segment in segment_file_list:
             if segment['length'] > largest_segment_size:
                 largest_segment_size = segment['length']
+        logging.info('Found a largest segment size of %s bytes' % largest_segment_size)
         min_acceptable_load = self.registry.min_acceptable_load_ratio(hosts, largest_segment_size)
         # filter out any hosts that have very little free space *and* are underloaded. They can't be fixed, most likely.
         nonfull_nonunderloaded_hosts = [host for host in hosts if not (host['load_ratio'] < min_acceptable_load and host['remaining_bytes'] <= largest_segment_size)]
         # sort hosts descending
         sorted_hosts = sorted(nonfull_nonunderloaded_hosts, key=lambda host: host['load_ratio'], reverse=True)
-        #print("sorted hosts: %s" % sorted_hosts)
+        logging.info("Non-full hosts which are underloaded: %s" % sorted_hosts)
         queue = []
         assignment_cache = {}
         last_reassignment = None
         while sorted_hosts[-1]['load_ratio'] < min_acceptable_load and len(sorted_hosts) >= 2:
+            logging.info("Looping while the least-loaded host's load ratio (%s) is less than %s and there are at least 2 hosts to assign from/to (there are %s)" % (sorted_hosts[-1]['load_ratio'], min_acceptable_load, sorted_hosts))
             # get the top-loaded host
             top_host = sorted_hosts[0]
             underloaded_host = sorted_hosts[-1]
