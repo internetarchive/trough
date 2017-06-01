@@ -29,6 +29,7 @@ class ReadServer:
         # if the user sent more than one query, or the query is not a SELECT, raise an exception.
         if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
             raise Exception('Exactly one SELECT query per request, please.')
+        assert os.path.isfile(segment.local_path())
         logging.info("Connecting to sqlite database: {segment}".format(segment=segment.local_path()))
         connection = sqlite3.connect(segment.local_path())
         trough.sync.setup_connection(connection)
