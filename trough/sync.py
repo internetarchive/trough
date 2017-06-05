@@ -3,7 +3,7 @@ import logging
 import doublethink
 import rethinkdb as r
 from trough.settings import settings
-from snakebite.client import Client
+from snakebite import client
 import socket
 import json
 import os
@@ -17,7 +17,7 @@ import sqlite3
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
-        lambda svc: r.now().sub(svc["last_heartbeat"]) < 3 * svc["heartbeat_interval"]
+        lambda svc: r.now().sub(svc["last_heartbeat"]) < svc["ttl"]
     )
 
 def setup_connection(conn):
@@ -199,7 +199,7 @@ class HostRegistry(object):
         doc['node'] = node
         doc['ttl'] = ttl
         doc['load'] = os.getloadavg()[1] # load average over last 5 mins
-        logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with heartbeat interval %s' % (pool, node, node, doc.get('port'), ttl))
+        logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with ttl %s' % (pool, node, node, doc.get('port'), ttl))
         self.services.heartbeat(doc)
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
@@ -240,6 +240,7 @@ class SyncController:
         self.election_cycle = settings['ELECTION_CYCLE']
         self.sync_port = settings['SYNC_PORT']
         self.read_port = settings['READ_PORT']
+        self.write_port = settings['WRITE_PORT']
         self.sync_loop_timing = settings['SYNC_LOOP_TIMING']
 
         self.rethinkdb_hosts = settings['RETHINKDB_HOSTS']
@@ -251,10 +252,10 @@ class SyncController:
         raise Exception('Not Implemented')
     def get_segment_file_list(self):
         logging.info('Getting segment list...')
-        snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         return snakebite_client.ls([settings['HDFS_PATH']])
     def get_segment_file_size(self, segment):
-        snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         sizes = [file['length'] for file in snakebite_client.ls([segment.remote_path()])]
         if len(sizes) > 1:
             raise Exception('Received more than one file listing.')
@@ -461,14 +462,13 @@ class MasterSyncController(SyncController):
         # make request to node to complete the local sync
         post_url = 'http://%s:%s/' % (assigned_host['node'], self.sync_port)
         requests.post(post_url, segment_id)
-        # create a new consul service
         self.registry.heartbeat(pool='trough-write',
             segment=segment_id,
             node=assigned_host['node'],
             port=self.write_port,
             url='http://%s:%s/?segment=%s' % (assigned_host['node'], self.write_port, segment_id),
             ttl=round(self.sync_loop_timing * 4))
-        # explicitly release provisioning lock (do nothing)
+        # explicitly release provisioning lock
         lock.release()
         # return an http endpoint for POSTs
         return "http://%s:%s/?segment=%s" % (assigned_host['node'], self.write_port, segment_id)
@@ -511,7 +511,7 @@ class LocalSyncController(SyncController):
         source = [os.path.join(self.hdfs_path, "%s.sqlite" % segment.id)]
         destination = self.local_data
         logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
-        snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         for f in snakebite_client.copyToLocal(source, destination):
             if f.get('error'):
                 logging.error('Error: %s' % f['error'])

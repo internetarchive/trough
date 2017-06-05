@@ -42,9 +42,9 @@ class TestSegment(unittest.TestCase):
         output = segment.all_copies()
         output = [item for item in output]
         self.assertEqual(output[0]['id'], 'test-pool:test-segment')
+    #def test_healthy_services_query(self):
+    #    sync.healthy_services_query(self.rethinker, 'trough-read')
     def test_readable_copies(self):
-        consul = mock.Mock()
-        consul.catalog.service = mock.Mock(return_value=[{"node": "test-segment.test-node"}])
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         segment = sync.Segment('test-segment',
             services=self.services,
@@ -292,11 +292,11 @@ class TestMasterSyncController(unittest.TestCase):
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         self.snakebite_client = mock.Mock()
         self.rethinker.table("services").delete().run()
+        self.rethinker.table("assignment").delete().run()
     def get_foreign_controller(self):
         controller = sync.MasterSyncController(rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
         controller.hostname = 'read02'
         controller.election_cycle = 0.1
         controller.sync_loop_timing = 0.01
@@ -309,8 +309,7 @@ class TestMasterSyncController(unittest.TestCase):
         # the second query will not find it when it runs because it's passed its TTL.
         controller = sync.MasterSyncController(rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
         controller.election_cycle = 0.1
         controller.sync_loop_timing = 0.01
         return controller
@@ -358,22 +357,32 @@ class TestMasterSyncController(unittest.TestCase):
         mintime = THREAD_DELAY - (settings['ELECTION_CYCLE'] + THREAD_JITTER)
         maxtime = THREAD_DELAY + (settings['ELECTION_CYCLE'] + THREAD_JITTER)
         self.assertTrue(mintime <= runtime.total_seconds() <= maxtime)
-    def test_get_segment_file_list(self):
-        def ls(*args, **kwargs):
-            yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
-        self.snakebite_client.ls = ls
+    @mock.patch("trough.sync.client")
+    def test_get_segment_file_list(self, snakebite):
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
+        snakebite.Client = C
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
         listing = controller.get_segment_file_list()
+        called = False
         for item in listing:
             self.assertEqual(item['length'], 1024*1000)
-    def test_assign_segments(self):
-        def ls(*args, **kwargs):
-            yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
-        self.snakebite_client.ls = ls
+            called = True
+        self.assertTrue(called)
+    @mock.patch("trough.sync.client")
+    def test_assign_segments(self, snakebite):
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
+        snakebite.Client = C
         hostname = 'test.example.com'
         self.registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % hostname,
@@ -385,7 +394,8 @@ class TestMasterSyncController(unittest.TestCase):
         assignments = [asmt for asmt in self.rethinker.table('assignment').run()]
         self.assertEqual(len(assignments), 1)
         self.assertEqual(assignments[0]['bytes'], 1024 * 1000)
-    def test_rebalance_hosts(self):
+    @mock.patch("trough.sync.client")
+    def test_rebalance_hosts(self, snakebite):
         self.rethinker.table("assignment").delete().run()
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         hosts = ['test1.example.com','test2.example.com','test3.example.com']
@@ -422,16 +432,18 @@ class TestMasterSyncController(unittest.TestCase):
         registry.commit_assignments()
 
         record_list = []
-        def ls(*args, **kwargs):
-            for record in record_list:
-                yield record
-        self.snakebite_client.ls = ls
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                for record in record_list:
+                    yield record
+        snakebite.Client = C
         # zero segments
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
         controller.rebalance_hosts()
         self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 0)
         # equal load
@@ -460,8 +472,7 @@ class TestMasterSyncController(unittest.TestCase):
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
         controller.rebalance_hosts()
         self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 3)
         # one segment much larger than others
@@ -486,8 +497,7 @@ class TestMasterSyncController(unittest.TestCase):
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
         controller.rebalance_hosts()
         self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 0)
         self.rethinker.table("assignment").delete().run()
@@ -505,19 +515,22 @@ class TestLocalSyncController(unittest.TestCase):
     def get_controller(self):
         return sync.LocalSyncController(rethinker=self.rethinker,
             services=self.services,
-            registry=self.registry,
-            snakebite_client=self.snakebite_client)
+            registry=self.registry)
+    @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.os.path")
-    def test_check_segment_matches_hdfs(self, path):
+    def test_check_segment_matches_hdfs(self, path, snakebite):
         test_value = 100
         def gs(*args, **kwargs):
             return test_value
         path.getsize = gs
         record_list = [{'length': 100, 'path': '/test-segment.sqlite'}]
-        def ls(*args, **kwargs):
-            for record in record_list:
-                yield record
-        self.snakebite_client.ls = ls
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                for record in record_list:
+                    yield record
+        snakebite.Client = C
         controller = self.get_controller()
         segment = sync.Segment('test-segment',
             services=self.services,
@@ -530,13 +543,17 @@ class TestLocalSyncController(unittest.TestCase):
         output = controller.check_segment_matches_hdfs(segment)
         self.assertEqual(output, False)
     # v don't log out the error message on error test below.
+    @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.logging.error")
-    def test_copy_segment_from_hdfs(self, error):
+    def test_copy_segment_from_hdfs(self, error, snakebite):
         results = [{'error': 'test error'}]
-        def copyToLocal(*args, **kwargs):
-            for result in results:
-                yield result
-        self.snakebite_client.copyToLocal = copyToLocal
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def copyToLocal(*args, **kwargs):
+                for result in results:
+                    yield result
+        snakebite.Client = C
         controller = self.get_controller()
         segment = sync.Segment('test-segment',
             services=self.services,
@@ -554,22 +571,25 @@ class TestLocalSyncController(unittest.TestCase):
         output = [svc for svc in self.rethinker.table('services').run()]
         self.assertEqual(output[0]['node'], 'read01')
         self.assertEqual(output[0]['first_heartbeat'], output[0]['last_heartbeat'])
+    @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.logging.error")
-    def test_sync_segments(self, error):
+    def test_sync_segments(self, error, snakebite):
         segments = [sync.Segment('test-segment', services=self.services, rethinker=self.rethinker, registry=self.registry, size=100)]
         def segments_for_host(*args, **kwargs):
             return segments
         self.registry.segments_for_host = segments_for_host
         record_list = [{'length': 100, 'path': '/test-segment.sqlite'}]
-        def ls(*args, **kwargs):
-            for record in record_list:
-                yield record
-        self.snakebite_client.ls = ls
         results = [{'error': 'test error'}]
-        def copyToLocal(*args, **kwargs):
-            for result in results:
-                yield result
-        self.snakebite_client.copyToLocal = copyToLocal
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                for record in record_list:
+                    yield record
+            def copyToLocal(*args, **kwargs):
+                for result in results:
+                    yield result
+        snakebite.Client = C
         called = []
         def check_call(*args, **kwargs):
             called.append(True)
