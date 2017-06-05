@@ -45,7 +45,7 @@ class ReadServer:
                 output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
                 yield ujson.dumps(output, escape_forward_slashes=False).encode('utf-8')
                 first = False
-            yield b"]"
+            yield b"]\n"
         finally:
             # close the cursor 'finally', in case there is an Exception.
             cursor.close()
@@ -72,4 +72,4 @@ class ReadServer:
             return self.read(segment, query)
         except Exception as e:
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
-            return [('500 Server Error: %s' % str(e)).encode('utf-8')]
+            return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]

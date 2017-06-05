@@ -24,7 +24,7 @@ class WriteServer:
         finally:
             connection.commit()
             connection.close()
-        return b"OK"
+        return b"OK\n"
 
     # uwsgi endpoint
     def __call__(self, env, start_response):
@@ -47,4 +47,4 @@ class WriteServer:
             return self.write(segment, query)
         except Exception as e:
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
-            return [('500 Server Error: %s' % str(e)).encode('utf-8')]
+            return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]
