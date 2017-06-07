@@ -14,6 +14,7 @@ import string
 import requests
 import datetime
 import sqlite3
+import re
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -22,10 +23,14 @@ def healthy_services_query(rethinker, role):
 
 def setup_connection(conn):
     def regexp(expr, item):
-        if item is None:
-            return False
-        reg = re.compile(expr)
-        return reg.search(item) is not None
+        try:
+            if item is None:
+                return False
+            reg = re.compile(expr)
+            return reg.search(item) is not None
+        except:
+            logging.error('REGEXP(%r, %r)', expr, item, exc_info=True)
+            raise
     conn.create_function("REGEXP", 2, regexp)
 
 class AssignmentQueue:
@@ -141,6 +146,8 @@ class Segment(object):
         cursor.close()
         connection.commit()
         connection.close()
+    def __repr__(self):
+        return '<Segment:id=%r,local_path=%r>' % (self.id, self.local_path())
 
 class HostRegistry(object):
     ''''''
