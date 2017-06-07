@@ -17,10 +17,12 @@ class WriteServer:
             raise Exception("No query provided.")
         # no sql parsing, if our chmod has write permission, allow all queries.
         connection = sqlite3.connect(segment.local_path())
+        connection.isolation_level = None # allows long strings of sql including mixes of create tables, triggers etc.
         trough.sync.setup_connection(connection)
         try:
-            query = b"BEGIN TRANSACTION;\n" + query + b"COMMIT;\n"
+            connection.execute("BEGIN TRANSACTION;\n")
             output = connection.executescript(query.decode('utf-8'))
+            connection.execute("COMMIT;\n")
         finally:
             connection.commit()
             connection.close()
@@ -44,7 +46,9 @@ class WriteServer:
             if not write_lock or write_lock['node'] != settings['HOSTNAME']:
                 raise Exception("This node cannot write to segment '{}'. There is no write lock set, or the write lock authorizes another node.".format(segment.id))
 
-            return self.write(segment, query)
+            output = self.write(segment, query)
+            start_response('200 OK', [('Content-Type', 'text/plain')])
+            return output
         except Exception as e:
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]
