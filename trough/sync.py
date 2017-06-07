@@ -14,6 +14,7 @@ import string
 import requests
 import datetime
 import sqlite3
+import re
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
