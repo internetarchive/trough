@@ -11,7 +11,7 @@ import doublethink
 
 class WriteServer:
     def write(self, segment, query):
-        logging.info('Servicing request: {query}'.format(query=query))
+        logging.info('Servicing request: segment=%r query=%r', segment, query)
         # if one or more of the query(s) are not a write query, raise an exception.
         if not query:
             raise Exception("No query provided.")
@@ -32,7 +32,6 @@ class WriteServer:
 
     # uwsgi endpoint
     def __call__(self, env, start_response):
-        self.start_response = start_response
         try:
             query_dict = urllib.parse.parse_qs(env.get('QUERY_STRING'))
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
@@ -46,11 +45,12 @@ class WriteServer:
             trough.sync.ensure_tables(rethinker)
             write_lock = segment.retrieve_write_lock()
             if not write_lock or write_lock['node'] != settings['HOSTNAME']:
-                raise Exception("This node cannot write to segment '{}'. There is no write lock set, or the write lock authorizes another node.".format(segment.id))
+                raise Exception("This node (settings['HOSTNAME']={}) cannot write to segment '{}'. There is no write lock set, or the write lock authorizes another node.".format(settings['HOSTNAME'], segment.id))
 
             output = self.write(segment, query)
             start_response('200 OK', [('Content-Type', 'text/plain')])
             return output
         except Exception as e:
+            logging.error('segment=%r query=%r', segment, query, exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]

@@ -141,6 +141,8 @@ class Segment(object):
         cursor.close()
         connection.commit()
         connection.close()
+    def __repr__(self):
+        return '<Segment:id=%r,local_path=%r>' % (self.id, self.local_path())
 
 class HostRegistry(object):
     ''''''
