@@ -45,7 +45,7 @@ class WriteServer:
             trough.sync.ensure_tables(rethinker)
             write_lock = segment.retrieve_write_lock()
             if not write_lock or write_lock['node'] != settings['HOSTNAME']:
-                raise Exception("This node (settings['HOSTNAME']={}) cannot write to segment '{}'. There is no write lock set, or the write lock authorizes another node.".format(settings['HOSTNAME'], segment.id))
+                raise Exception("This node (settings['HOSTNAME']={!r}) cannot write to segment {!r}. There is no write lock set, or the write lock authorizes another node.".format(settings['HOSTNAME'], segment.id))
 
             output = self.write(segment, query)
             start_response('200 OK', [('Content-Type', 'text/plain')])
