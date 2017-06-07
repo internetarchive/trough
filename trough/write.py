@@ -20,6 +20,9 @@ class WriteServer:
         connection.isolation_level = None # allows long strings of sql including mixes of create tables, triggers etc.
         trough.sync.setup_connection(connection)
         try:
+            query = query.rstrip();
+            if not query[-1] == b';':
+                query = query + b';'
             query = b"BEGIN TRANSACTION;\n" + query + b"COMMIT;\n"
             output = connection.executescript(query.decode('utf-8'))
         finally:
