@@ -17,13 +17,15 @@ class WriteServer:
             raise Exception("No query provided.")
         # no sql parsing, if our chmod has write permission, allow all queries.
         connection = sqlite3.connect(segment.local_path())
-        connection.isolation_level = None # allows long strings of sql including mixes of create tables, triggers etc.
         trough.sync.setup_connection(connection)
         try:
             query = query.rstrip();
             if not query[-1] == b';':
                 query = query + b';'
-            query = b"BEGIN TRANSACTION;\n" + query + b"COMMIT;\n"
+            # executescript does not seem to respect isolation_level, so for
+            # performance, we wrap the sql in a transaction manually
+            # see http://bugs.python.org/issue30593
+            query = b"BEGIN TRANSACTION;\n" + query + b"\nCOMMIT;\n"
             output = connection.executescript(query.decode('utf-8'))
         finally:
             connection.commit()
