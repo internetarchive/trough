@@ -520,10 +520,14 @@ class TestLocalSyncController(unittest.TestCase):
     @mock.patch("trough.sync.os.path")
     def test_check_segment_matches_hdfs(self, path, snakebite):
         test_value = 100
+        timestamp = 1497507172.940573
+        def gm(*args, **kwargs):
+            return timestamp
         def gs(*args, **kwargs):
             return test_value
+        path.getmtime = gm
         path.getsize = gs
-        record_list = [{'length': 100, 'path': '/test-segment.sqlite'}]
+        record_list = [{'length': 100, 'path': '/test-segment.sqlite', 'modification_time': 1497506983860 }]
         class C:
             def __init__(*args, **kwargs):
                 pass
@@ -540,6 +544,12 @@ class TestLocalSyncController(unittest.TestCase):
         output = controller.check_segment_matches_hdfs(segment)
         self.assertEqual(output, True)
         test_value = 50
+        output = controller.check_segment_matches_hdfs(segment)
+        self.assertEqual(output, False)
+        test_value = 100
+        output = controller.check_segment_matches_hdfs(segment)
+        self.assertEqual(output, True)
+        timestamp = 1497506978.949731
         output = controller.check_segment_matches_hdfs(segment)
         self.assertEqual(output, False)
     # v don't log out the error message on error test below.

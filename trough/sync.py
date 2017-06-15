@@ -505,11 +505,18 @@ class LocalSyncController(SyncController):
             logging.info('HDFS recorded size: %s' % segment.size)
             local_size = os.path.getsize(segment.local_path())
             logging.info('local size: %s' % local_size)
-            if segment.size == local_size:
-                logging.info('Byte counts match.')
-                return True
+            if segment.size != local_size:
+                logging.info('Byte counts do not match HDFS for segment %s' % segment.id)
+                return False
+            snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+            listing = snakebite_client.ls([segment.remote_path()])
+            listing = [item for item in listing]
+            if listing[0]['modification_time'] / 1000 > os.path.getmtime(segment.local_path()):
+                logging.info('HDFS version is newer for segment %s.')
+                return False
+            return True
         except Exception as e:
-            logging.warning('Exception occurred while checking byte count match for %s' % segment.id)
+            logging.warning('Exception "%s" occurred while checking byte count match for %s' % (e, segment.id))
         logging.warning('Byte counts do not match HDFS for segment %s' % segment.id)
         return False
 
