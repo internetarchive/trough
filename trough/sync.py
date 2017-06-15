@@ -527,7 +527,7 @@ class LocalSyncController(SyncController):
         destination = self.local_data
         # delete local file if it exists, otherwise surpress error
         with contextlib.suppress(FileNotFoundError):
-            os.remove(self.local_data)
+            os.remove(segment.local_path())
         logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         for f in snakebite_client.copyToLocal(source, destination):
