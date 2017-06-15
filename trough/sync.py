@@ -15,6 +15,7 @@ import requests
 import datetime
 import sqlite3
 import re
+import contextlib
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -524,6 +525,9 @@ class LocalSyncController(SyncController):
         logging.info('copying segment %s from HDFS...' % segment.id)
         source = [os.path.join(self.hdfs_path, "%s.sqlite" % segment.id)]
         destination = self.local_data
+        # delete local file if it exists, otherwise surpress error
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(self.local_data)
         logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         for f in snakebite_client.copyToLocal(source, destination):
