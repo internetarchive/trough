@@ -585,6 +585,7 @@ class TestLocalSyncController(unittest.TestCase):
     @mock.patch("trough.sync.logging.error")
     def test_sync_segments(self, error, snakebite):
         segments = [sync.Segment('test-segment', services=self.services, rethinker=self.rethinker, registry=self.registry, size=100)]
+        segments[0].remote_path = lambda: True
         def segments_for_host(*args, **kwargs):
             return segments
         self.registry.segments_for_host = segments_for_host

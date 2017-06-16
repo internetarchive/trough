@@ -338,13 +338,13 @@ class MasterSyncController(SyncController):
                     assignments = sorted(assignments, key=lambda record: record['assigned_on'])
                     # remove the assignment
                     assignments[0].unassign()
-            # TODO: writable copies should not be automatically decommissioned when a read-only copy is available.
+            # writable copies are not automatically decommissioned when a read-only copy is available.
             # (the read-only copy could have been the starting point for the writable segment)
-            # instead, do date math on the mtimes (?) to figure out which copy is newer, with any newer copy being
-            # considered the canonical copy.
+            # instead, do date math on the modification times to figure out which copy is newer,
+            # with any newer copy being considered the canonical copy.
             writable_copies_count = segment.writable_copies_count()
-            if writable_copies_count > 0:
-                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the read-only copy from HDFS." % segment.id)
+            if writable_copies_count > 0 and file['modification_time'] / 1000 > os.path.getmtime(segment.local_path()):
+                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(writable_copies[0].get('id'))
         self.registry.commit_assignments()
 
@@ -459,23 +459,17 @@ class MasterSyncController(SyncController):
             rethinker=self.rethinker,
             services=self.services,
             registry=self.registry, size=0)
-        writable_copies = [copy for copy in segment.writable_copies()]
+        assigned_host = segment.retrieve_write_lock()
         readable_copies = [copy for copy in segment.readable_copies()]
         # if the requested segment has no writable copies:
-        if len(writable_copies) == 0:
+        if not assigned_host:
             all_hosts = self.registry.get_hosts()
             assigned_host = random.choice(readable_copies) if readable_copies else random.choice(all_hosts)
-        else:
-            assigned_host = writable_copies[0]
+        if not readable_copies:
+            self.registry.assign(assigned_host['node'], segment, remote_path=None)
         # make request to node to complete the local sync
         post_url = 'http://%s:%s/' % (assigned_host['node'], self.sync_port)
         requests.post(post_url, segment_id)
-        self.registry.heartbeat(pool='trough-write',
-            segment=segment_id,
-            node=assigned_host['node'],
-            port=self.write_port,
-            url='http://%s:%s/?segment=%s' % (assigned_host['node'], self.write_port, segment_id),
-            ttl=round(self.sync_loop_timing * 4))
         # explicitly release provisioning lock
         lock.release()
         # return an http endpoint for POSTs
@@ -549,11 +543,21 @@ class LocalSyncController(SyncController):
     def sync_segments(self):
         segment_health_ttl = self.sync_loop_timing * 4
         for segment in self.registry.segments_for_host(self.hostname):
-            exists = segment.local_segment_exists()
-            matches_hdfs = self.check_segment_matches_hdfs(segment)
-            if not exists or not matches_hdfs:
-                self.copy_segment_from_hdfs(segment)
-            logging.info('registering segment %s...' % (segment.id))
+            if segment.remote_path():
+                exists = segment.local_segment_exists()
+                matches_hdfs = self.check_segment_matches_hdfs(segment)
+                if not exists or not matches_hdfs:
+                    self.copy_segment_from_hdfs(segment)
+            write_lock = segment.retrieve_write_lock()
+            if write_lock and write_lock.node == self.hostname:
+                logging.info('write heartbeat for segment %s...' % (segment.id))
+                self.registry.heartbeat(pool='trough-write',
+                    segment=segment.id,
+                    node=self.hostname,
+                    port=self.write_port,
+                    url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment_id),
+                    ttl=segment_health_ttl)
+            logging.info('read heartbeat for segment %s...' % (segment.id))
             self.registry.heartbeat(pool='trough-read',
                 segment=segment.id,
                 node=self.hostname,
@@ -572,6 +576,21 @@ class LocalSyncController(SyncController):
         lock_data = segment.retrieve_write_lock()
         if not lock_data:
             lock_data = segment.acquire_write_lock()
+
+        self.registry.heartbeat(pool='trough-write',
+            segment=segment_id,
+            node=self.hostname,
+            port=self.write_port,
+            url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment_id),
+            ttl=round(self.sync_loop_timing * 4))
+
+        self.registry.heartbeat(pool='trough-read',
+            segment=segment_id,
+            node=self.hostname,
+            port=self.read_port,
+            url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment_id),
+            ttl=round(self.sync_loop_timing * 4))
+
         # check that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
