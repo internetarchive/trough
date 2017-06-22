@@ -518,7 +518,7 @@ class TestLocalSyncController(unittest.TestCase):
             registry=self.registry)
     @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.os.path")
-    def test_check_segment_matches_hdfs(self, path, snakebite):
+    def test_check_local_segment_is_fresh(self, path, snakebite):
         test_value = 100
         timestamp = 1497507172.940573
         def gm(*args, **kwargs):
@@ -541,16 +541,10 @@ class TestLocalSyncController(unittest.TestCase):
             rethinker=self.rethinker,
             registry=self.registry,
             size=100)
-        output = controller.check_segment_matches_hdfs(segment)
-        self.assertEqual(output, True)
-        test_value = 50
-        output = controller.check_segment_matches_hdfs(segment)
-        self.assertEqual(output, False)
-        test_value = 100
-        output = controller.check_segment_matches_hdfs(segment)
+        output = controller.check_local_segment_is_fresh(segment)
         self.assertEqual(output, True)
         timestamp = 1497506978.949731
-        output = controller.check_segment_matches_hdfs(segment)
+        output = controller.check_local_segment_is_fresh(segment)
         self.assertEqual(output, False)
     # v don't log out the error message on error test below.
     @mock.patch("trough.sync.client")

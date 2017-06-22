@@ -108,12 +108,12 @@ class Segment(object):
         return self.readable_copies_query().count().run()
     def writable_copies_query(self):
         return healthy_services_query(self.rethinker, role='trough-write').filter({ 'segment': self.id })
-    def writable_copies(self):
+    def writable_copy(self):
         '''returns the 'up' copies of this segment to write to, per rethinkdb.'''
-        return self.writable_copies_query().run()
-    def writable_copies_count(self):
-        '''returns the count of 'up' copies of this segment to write to, per rethinkdb.'''
-        return self.writable_copies_query().count().run()
+        copies = list(self.writable_copies_query().run())
+        if copies:
+            return copies[0]
+        return None
     def is_assigned_to_host(self, host):
         return bool(Assignment.load(self.rethinker, self.host_key(host)))
     def minimum_assignments(self):
@@ -128,6 +128,12 @@ class Segment(object):
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
         return Lock.load(self.rethinker, 'write:lock:%s' % self.id)
+    def local_host_can_write(self):
+        write_lock = self.retrieve_write_lock()
+        if write_lock and write_lock['node'] == settings['HOSTNAME']:
+            return write_lock
+        else:
+            return None
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def remote_path(self):
@@ -338,14 +344,6 @@ class MasterSyncController(SyncController):
                     assignments = sorted(assignments, key=lambda record: record['assigned_on'])
                     # remove the assignment
                     assignments[0].unassign()
-            # writable copies are not automatically decommissioned when a read-only copy is available.
-            # (the read-only copy could have been the starting point for the writable segment)
-            # instead, do date math on the modification times to figure out which copy is newer,
-            # with any newer copy being considered the canonical copy.
-            writable_copies_count = segment.writable_copies_count()
-            if writable_copies_count > 0 and file['modification_time'] / 1000 > os.path.getmtime(segment.local_path()):
-                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
-                self.decommission_writable_segment(writable_copies[0].get('id'))
         self.registry.commit_assignments()
 
     def rebalance_hosts(self):
@@ -475,10 +473,6 @@ class MasterSyncController(SyncController):
         # return an http endpoint for POSTs
         return "http://%s:%s/?segment=%s" % (assigned_host['node'], self.write_port, segment_id)
 
-    def decommission_writable_segment(self, service_id):
-        logging.info('De-commissioning a writable segment: %s' % service_id)
-        self.services.unregister(service_id)
-
 # Local mode synchronizer.
 class LocalSyncController(SyncController):
     def __init__(self, *args, **kwargs):
@@ -494,25 +488,22 @@ class LocalSyncController(SyncController):
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
-    def check_segment_matches_hdfs(self, segment):
-        logging.info('Checking that segment %s matches its byte count in HDFS.' % (segment.id,))
+    def check_local_segment_is_fresh(self, segment):
+        logging.info('Checking that segment %s is "fresh" in reference to HDFS.' % (segment.id,))
         try:
-            logging.info('HDFS recorded size: %s' % segment.size)
-            local_size = os.path.getsize(segment.local_path())
-            logging.info('local size: %s' % local_size)
-            if segment.size != local_size:
-                logging.info('Byte counts do not match HDFS for segment %s' % segment.id)
-                return False
             snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
             listing = snakebite_client.ls([segment.remote_path()])
             listing = [item for item in listing]
-            if listing[0]['modification_time'] / 1000 > os.path.getmtime(segment.local_path()):
-                logging.info('HDFS version is newer for segment %s.')
+            remote_mtime = listing[0]['modification_time'] / 1000
+            local_mtime = os.path.getmtime(segment.local_path())
+            if remote_mtime > local_mtime:
+                logging.info('HDFS version (mtime: %s) is newer for segment %s (mtime: %s). Segment is "stale"' % (remote_mtime, segment.id, local_mtime))
                 return False
+            logging.info('Local copy is "fresh" for segment %s.' % (segment.id,))
             return True
         except Exception as e:
-            logging.warning('Exception "%s" occurred while checking byte count match for %s' % (e, segment.id))
-        logging.warning('Byte counts do not match HDFS for segment %s' % segment.id)
+            logging.warning('Exception "%s" occurred while checking freshness for segment %s' % (e, segment.id))
+        logging.warning('Segment %s considered "stale" with reference to HDFS version.' % segment.id)
         return False
 
     def copy_segment_from_hdfs(self, segment):
@@ -540,16 +531,27 @@ class LocalSyncController(SyncController):
             available_bytes=self.storage_in_bytes
         )
 
+    def decommission_writable_segment(self, segment, write_lock):
+        segment.writable_copy().id
+        logging.info('De-commissioning a writable segment: %s' % segment.id)
+        self.services.unregister(segment.writable_copy().id)
+        write_lock.release()
+
     def sync_segments(self):
         segment_health_ttl = self.sync_loop_timing * 4
         for segment in self.registry.segments_for_host(self.hostname):
+            write_lock = segment.local_host_can_write()
             if segment.remote_path():
                 exists = segment.local_segment_exists()
-                matches_hdfs = self.check_segment_matches_hdfs(segment)
+                matches_hdfs = self.check_local_segment_is_fresh(segment)
                 if not exists or not matches_hdfs:
                     self.copy_segment_from_hdfs(segment)
-            write_lock = segment.retrieve_write_lock()
-            if write_lock and write_lock.node == self.hostname:
+                    logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
+                    if write_lock:
+                        self.decommission_writable_segment(segment, write_lock)
+                        # don't heartbeat for writable segment if we've just decommissioned it
+                        write_lock = None
+            if write_lock:
                 logging.info('write heartbeat for segment %s...' % (segment.id))
                 self.registry.heartbeat(pool='trough-write',
                     segment=segment.id,
