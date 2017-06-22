@@ -1,8 +1,10 @@
+-- All indexes on crawled_url, uncrawled_url and out_of_scope_url are created in finalize.sql (for insert speed)
 CREATE TABLE crawled_url(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME,
         status_code INTEGER,
         size BIGINT,
+        payload_size BIGINT,
         url VARCHAR(4000),
         hop_path VARCHAR(255),
         is_seed_redirect INTEGER(1),
@@ -13,13 +15,16 @@ CREATE TABLE crawled_url(
         is_duplicate INTEGER(1),
         warc_filename VARCHAR(255),
         warc_offset VARCHAR(255),
+        warc_content_bytes BIGINT,
         host VARCHAR(255));
 
-CREATE TABLE queued_url(
+
+CREATE TABLE uncrawled_url(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME,
         url VARCHAR(4000),
         hop_path VARCHAR(255),
+        status_code INTEGER,
         via VARCHAR(255),
         seed VARCHAR(4000),
         host VARCHAR(255));
@@ -27,7 +32,8 @@ CREATE TABLE queued_url(
 CREATE TABLE out_of_scope_url (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         url VARCHAR(4000),
-        host VARCHAR(255));
+        host VARCHAR(4000),
+        seed VARCHAR(4000));
 
 CREATE TABLE host_statistics(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,32 +42,166 @@ CREATE TABLE host_statistics(
         new_count BIGINT,
         all_size BIGINT,
         new_size BIGINT,
+        warc_all_count BIGINT,
+        warc_new_count BIGINT,
+        warc_all_content_bytes BIGINT,
+        warc_new_content_bytes BIGINT,
         blocked INTEGER,
         queued INTEGER,
         out_of_scope INTEGER);
+
 CREATE INDEX host_index ON host_statistics (host);
+
 CREATE TRIGGER collect_host_statistics AFTER INSERT ON crawled_url
         FOR EACH ROW
         BEGIN
-            UPDATE host_statistics 
+            UPDATE host_statistics
                 SET
-                    all_count = all_count + 1,
-                    all_size = all_size + new.size,
-                    new_count = new_count + CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,
-                    new_size = new_size + CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END,
+                    all_count = all_count + CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,
+                    all_size = all_size + CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                    new_count = new_count + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,
+                    new_size = new_size + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                    warc_all_count = warc_all_count + CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                    warc_new_count = warc_new_count + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                    warc_all_content_bytes = warc_all_content_bytes + CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                    warc_new_content_bytes = warc_new_content_bytes + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END,
                     blocked = blocked + CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END
             WHERE host = new.host;
             -- If no update happened (i.e. the row didn't exist) then insert one
-            INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, blocked, queued, out_of_scope) 
-                SELECT 
+            INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, blocked, queued, out_of_scope)
+                SELECT
                     new.host,                                              -- host
-                    1,                                                     -- all_count
-                    new.size,                                              -- all_size
-                    CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,        -- new_count
-                    CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END, -- new_size
+                    CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,       -- all_count
+                    CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,   -- all_size
+                    CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,                   -- new_count
+                    CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END, -- new_size
+                    CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END,
                     CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END,     -- blocked
                     0,                                                     -- queued (inserts on crawled_url don't include queued)
                     0                                                      -- out_of_scope (inserts on crawled_url don't include OOS)
+                WHERE (Select Changes() = 0);
+        END;
+
+CREATE TRIGGER collect_host_uncrawled_statistics AFTER INSERT ON uncrawled_url
+       FOR EACH ROW
+       BEGIN
+           UPDATE host_statistics
+	       SET
+	           queued = queued + CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END,
+	           blocked = blocked + CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END
+           WHERE host = new.host;
+       INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, queued, blocked, out_of_scope)
+           SELECT
+               new.host,
+               0, 0, 0, 0, 0, 0, 0, 0,
+               CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END, -- queued
+               CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END, -- blocked
+               0 -- out of scope
+           WHERE (Select Changes() = 0);
+       END;
+
+CREATE TRIGGER collect_host_oos_statistics AFTER INSERT ON out_of_scope_url
+        FOR EACH ROW
+        BEGIN
+            UPDATE host_statistics
+                SET
+                    out_of_scope = out_of_scope + 1
+                WHERE host = new.host;
+            INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, blocked, queued, out_of_scope)
+	    	SELECT
+		    new.host,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    1 -- out_of_scope
+                WHERE (Select Changes() = 0);
+        END;
+
+CREATE TABLE seed_host_statistics(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        host VARCHAR(4000),
+        seed VARCHAR(4000),
+        all_count BIGINT,
+        new_count BIGINT,
+        all_size BIGINT,
+        new_size BIGINT,
+        warc_all_count BIGINT,
+        warc_new_count BIGINT,
+        warc_all_content_bytes BIGINT,
+        warc_new_content_bytes BIGINT,
+        blocked INTEGER,
+        queued INTEGER,
+        out_of_scope INTEGER);
+
+CREATE INDEX seed_host_index ON seed_host_statistics (seed, host);
+
+CREATE TRIGGER collect_seed_host_statistics AFTER INSERT ON crawled_url
+        FOR EACH ROW
+        BEGIN
+            UPDATE seed_host_statistics
+                SET
+                    all_count = all_count + CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,
+                    all_size = all_size + CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                    new_count = new_count + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,
+                    new_size = new_size + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                    warc_all_count = warc_all_count + CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                    warc_new_count = warc_new_count + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                    warc_all_content_bytes = warc_all_content_bytes + CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                    warc_new_content_bytes = warc_new_content_bytes + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END,
+                    blocked = blocked + CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END
+            WHERE host = new.host AND seed = new.seed;
+            -- If no update happened (i.e. the row didn't exist) then insert one
+            INSERT INTO seed_host_statistics (host, seed, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, blocked, queued, out_of_scope)
+                SELECT
+                    new.host,                                              -- host
+                    new.seed,                                              -- seed
+                    CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,       -- all_count
+                    CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,   -- all_size
+                    CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,                   -- new_count
+                    CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END, -- new_size
+                    CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END,
+                    CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END,     -- blocked
+                    0,                                                     -- queued (inserts on crawled_url don't include queued)
+                    0                                                      -- out_of_scope (inserts on crawled_url don't include OOS)
+                WHERE (Select Changes() = 0);
+        END;
+
+CREATE TRIGGER collect_seed_host_uncrawled_statistics AFTER INSERT ON uncrawled_url
+       FOR EACH ROW
+       BEGIN
+           UPDATE seed_host_statistics
+	       SET
+	           queued = queued + CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END,
+	           blocked = blocked + CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END
+           WHERE host = new.host AND seed = new.seed;
+       INSERT INTO seed_host_statistics (seed, host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, queued, blocked, out_of_scope)
+           SELECT
+               new.seed,
+               new.host,
+               0, 0, 0, 0, 0, 0, 0, 0,
+               CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END, -- queued
+               CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END, -- blocked
+               0 -- out of scope
+           WHERE (Select Changes() = 0);
+       END;
+
+CREATE TRIGGER collect_seed_host_oos_statistics AFTER INSERT ON out_of_scope_url
+        FOR EACH ROW
+        BEGIN
+            UPDATE seed_host_statistics
+                SET
+                    out_of_scope = out_of_scope + 1
+                WHERE host = new.host AND seed = new.seed;
+            INSERT INTO seed_host_statistics (host, seed, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, blocked, queued, out_of_scope)
+	        SELECT
+                    new.host,
+                    new.seed,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    1 -- out_of_scope
                 WHERE (Select Changes() = 0);
         END;
 
@@ -72,36 +212,77 @@ CREATE TABLE seed_statistics(
         new_count BIGINT,
         all_size BIGINT,
         new_size BIGINT,
+        warc_all_count BIGINT,
+        warc_new_count BIGINT,
+        warc_all_content_bytes BIGINT,
+        warc_new_content_bytes BIGINT,
         timestamp DATETIME,
         status INTEGER,
-        status_code INTEGER);
+        status_code INTEGER,
+        redirects VARCHAR(100000));
+
 CREATE INDEX seed_index ON seed_statistics (seed);
-CREATE TRIGGER collect_seed_statistics AFTER INSERT ON crawled_url
-        FOR EACH ROW
-        BEGIN
-            UPDATE seed_statistics 
-                SET
-                    all_count = all_count + 1,
-                    all_size = all_size + new.size,
-                    new_count = new_count + CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,
-                    new_size = new_size + CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END,
-                    timestamp = CASE WHEN new.hop_path REGEXP "^R.$" THEN new.timestamp ELSE NULL END, -- TODO: this is wrong.
-                    status = CASE WHEN new.hop_path REGEXP "^R+$" THEN 'Redirected' WHEN new.hop_path REGEXP "^$" THEN 'Crawled' ELSE NULL END, -- TODO: this is wrong.
-                    status_code = CASE WHEN new.hop_path REGEXP "^$" THEN new.status_code ELSE NULL END -- TODO: this is wrong.
-            WHERE seed = new.seed;
-            -- If no update happened (i.e. the row didn't exist) then insert one
-            INSERT INTO seed_statistics (seed, all_count, all_size, new_count, new_size, timestamp, status, status_code) 
-                SELECT 
-                    new.seed,                                                             -- seed
-                    1,                                                                    -- all_count
-                    new.size,                                                             -- all_size
-                    CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,                       -- new_count
-                    CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END,                -- new_size
-                    CASE WHEN new.hop_path REGEXP "^R.$" THEN new.timestamp ELSE NULL END, -- timestamp -- TODO: this is wrong.
-                    CASE WHEN new.hop_path REGEXP "^R+$'" THEN 'Redirected' WHEN new.hop_path REGEXP "^$" THEN 'Crawled' ELSE NULL END, -- status -- TODO: this is wrong.
-                    CASE WHEN new.hop_path REGEXP "^$" THEN new.status_code ELSE NULL END  -- status_code -- TODO: this is wrong.
-                WHERE (Select Changes() = 0);
-        END;
+
+CREATE TRIGGER update_seed_counts AFTER INSERT ON crawled_url
+    FOR EACH ROW
+    BEGIN
+        UPDATE seed_statistics SET
+            all_count = all_count + CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,
+            all_size = all_size + CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+            new_count = new_count + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,
+            new_size = new_size + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+            warc_all_count = warc_all_count + CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+            warc_new_count = warc_new_count + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+            warc_all_content_bytes = warc_all_content_bytes + CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+            warc_new_content_bytes = warc_new_content_bytes + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END
+        WHERE seed = new.seed;
+        INSERT INTO seed_statistics (seed, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes)
+            SELECT
+                new.seed,
+                CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,       -- all_count
+                CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,   -- all_size
+                CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,
+                CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END
+            WHERE (SELECT Changes() = 0);
+    END;
+
+CREATE TRIGGER collect_redirect_seed_statistics AFTER INSERT ON crawled_url
+    FOR EACH ROW
+    WHEN new.hop_path REGEXP "^R+$"
+    BEGIN
+        UPDATE seed_statistics
+            SET
+                redirects = BUILDREDIRECTARRAY(new.url, new.status_code, new.hop_path, redirects)
+        WHERE seed = new.seed;
+        INSERT INTO seed_statistics (seed, redirects)
+            SELECT
+                new.seed,                                                             -- seed
+                BUILDREDIRECTARRAY(new.url, new.status_code, new.hop_path, NULL)
+            WHERE (Select Changes() = 0);
+    END;
+
+CREATE TRIGGER collect_first_seed_statistics AFTER INSERT ON crawled_url
+    FOR EACH ROW
+    WHEN new.hop_path IS NULL OR NOT length(new.hop_path)
+    BEGIN
+        UPDATE seed_statistics
+            SET
+                timestamp =   new.timestamp,
+                status =      SEEDCRAWLEDSTATUS(new.status_code),
+                status_code = new.status_code
+        WHERE seed = new.seed;
+        INSERT INTO seed_statistics (seed, timestamp, status, status_code)
+            SELECT
+                new.seed,                                                             -- seed
+                new.timestamp,                                                        -- timestamp
+                SEEDCRAWLEDSTATUS(new.status_code),                                   -- status
+                new.status_code                                                       -- status_code
+            WHERE (Select Changes() = 0);
+    END;
 
 CREATE TABLE mimetype_statistics(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,27 +290,40 @@ CREATE TABLE mimetype_statistics(
         all_count BIGINT,
         new_count BIGINT,
         all_size BIGINT,
-        new_size BIGINT);
+        new_size BIGINT,
+        warc_all_count BIGINT,
+        warc_new_count BIGINT,
+        warc_all_content_bytes BIGINT,
+        warc_new_content_bytes BIGINT);
+
 CREATE INDEX mimetype_index ON mimetype_statistics (mimetype);
+
 CREATE TRIGGER collect_mimetype_statistics AFTER INSERT ON crawled_url
         FOR EACH ROW
         BEGIN
-            UPDATE mimetype_statistics 
+            UPDATE mimetype_statistics
                 SET
-                    all_count = all_count + 1,
-                    all_size = all_size + new.size,
-                    new_count = new_count + CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,
-                    new_size = new_size + CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END
+                    all_count = all_count + CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,
+                    all_size = all_size + CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                    new_count = new_count + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,
+                    new_size = new_size + CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,
+                    warc_all_count = warc_all_count + CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                    warc_new_count = warc_new_count + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                    warc_all_content_bytes = warc_all_content_bytes + CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                    warc_new_content_bytes = warc_new_content_bytes + CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END
             WHERE mimetype = new.mimetype;
             -- If no update happened (i.e. the row didn't exist) then insert one
-            INSERT INTO mimetype_statistics (mimetype, all_count, all_size, new_count, new_size) 
-                SELECT 
+            INSERT INTO mimetype_statistics (mimetype, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes)
+                SELECT
                     new.mimetype,                                          -- mimetype
-                    1,                                                     -- all_count
-                    new.size,                                              -- all_size
-                    CASE new.is_duplicate WHEN 0 THEN 1 ELSE 0 END,        -- new_count
-                    CASE new.is_duplicate WHEN 0 THEN new.size ELSE 0 END  -- new_size
+                    CASE WHEN new.status_code > 0 THEN 1 ELSE 0 END,       -- all_count
+                    CASE WHEN new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,   -- all_size
+                    CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN 1 ELSE 0 END,                    -- new_count
+                    CASE WHEN NOT new.is_duplicate AND new.status_code > 0 THEN ifnull(new.size, 0) ELSE 0 END,  -- new_size
+                    CASE WHEN new.warc_filename IS NOT NULL THEN 1 ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN 1 ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL THEN new.warc_content_bytes ELSE 0 END,
+                    CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END
                 WHERE (Select Changes() = 0);
         END;
-
 
