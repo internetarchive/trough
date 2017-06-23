@@ -508,7 +508,7 @@ class LocalSyncController(SyncController):
 
     def copy_segment_from_hdfs(self, segment):
         logging.info('copying segment %s from HDFS...' % segment.id)
-        source = segment.remote_path()
+        source = [segment.remote_path()]
         destination = self.local_data
         # delete local file if it exists, otherwise surpress error
         with contextlib.suppress(FileNotFoundError):
