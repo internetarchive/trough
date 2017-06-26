@@ -566,7 +566,7 @@ class LocalSyncController(SyncController):
                     segment=segment.id,
                     node=self.hostname,
                     port=self.write_port,
-                    url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment_id),
+                    url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment.id),
                     ttl=segment_health_ttl)
             logging.info('read heartbeat for segment %s...' % (segment.id))
             self.registry.heartbeat(pool='trough-read',
