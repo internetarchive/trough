@@ -69,6 +69,11 @@ class Assignment(doublethink.Document):
 
 class Lock(doublethink.Document):
     @classmethod
+    def table_create(cls, rr):
+        rr.table_create(cls.table).run()
+        rr.table(cls.table).index_create('host').run()
+        rr.table(cls.table).index_wait('host').run()
+    @classmethod
     def acquire(cls, rr, pk, document={}):
         '''Acquire a lock. Raises an exception if the lock key exists.'''
         document["id"] = pk
@@ -80,11 +85,13 @@ class Lock(doublethink.Document):
         return cls(rr, d=document)
     def release(self):
         return self.rr.table(self.table, read_mode='majority').get(self.id).delete().run()
+    @classmethod
+    def host_locks(cls, rr, host):
+        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="host").run())
 
 def ensure_tables(rethinker):
     Assignment.table_ensure(rethinker)
     Lock.table_ensure(rethinker)
-
 
 class Segment(object):
     def __init__(self, segment_id, size, rethinker, services, registry):
@@ -231,6 +238,8 @@ class HostRegistry(object):
     def segments_for_host(self, host):
         assignments = Assignment.host_assignments(self.rethinker, host)
         segments = [Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self) for asmt in assignments]
+        locks = Lock.host_locks(self.rethinker, host) # TODO: does this need deduplication with the above? We are trading a little overhead for lower complexity...
+        segments += [Segment(segment_id=lock.segment, size=0, rethinker=self.rethinker, services=self.services, registry=self) for lock in locks]
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
         return segments
 
