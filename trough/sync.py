@@ -87,7 +87,7 @@ class Lock(doublethink.Document):
         return self.rr.table(self.table, read_mode='majority').get(self.id).delete().run()
     @classmethod
     def host_locks(cls, rr, host):
-        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="node").run())
+        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="host").run())
 
 def ensure_tables(rethinker):
     Assignment.table_ensure(rethinker)
@@ -131,7 +131,7 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS']
     def acquire_write_lock(self):
         '''Raises exception if lock exists.'''
-        return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={})
+        return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={ "segment": self.id })
     def retrieve_write_lock(self):
         '''Returns None or dict. Can be used to evaluate whether a lock exists and, if so, which host holds it.'''
         return Lock.load(self.rethinker, 'write:lock:%s' % self.id)
