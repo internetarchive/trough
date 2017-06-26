@@ -87,7 +87,7 @@ class Lock(doublethink.Document):
         return self.rr.table(self.table, read_mode='majority').get(self.id).delete().run()
     @classmethod
     def host_locks(cls, rr, host):
-        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="host").run())
+        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="node").run())
 
 def ensure_tables(rethinker):
     Assignment.table_ensure(rethinker)
