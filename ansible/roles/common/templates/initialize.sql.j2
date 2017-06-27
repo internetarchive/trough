@@ -89,9 +89,9 @@ CREATE TRIGGER collect_host_uncrawled_statistics AFTER INSERT ON uncrawled_url
        FOR EACH ROW
        BEGIN
            UPDATE host_statistics
-	       SET
-	           queued = queued + CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END,
-	           blocked = blocked + CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END
+           SET
+               queued = queued + CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END,
+               blocked = blocked + CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END
            WHERE host = new.host;
        INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, queued, blocked, out_of_scope)
            SELECT
@@ -111,8 +111,8 @@ CREATE TRIGGER collect_host_oos_statistics AFTER INSERT ON out_of_scope_url
                     out_of_scope = out_of_scope + 1
                 WHERE host = new.host;
             INSERT INTO host_statistics (host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, blocked, queued, out_of_scope)
-	    	SELECT
-		    new.host,
+            SELECT
+            new.host,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     1 -- out_of_scope
                 WHERE (Select Changes() = 0);
@@ -166,7 +166,7 @@ CREATE TRIGGER collect_seed_host_statistics AFTER INSERT ON crawled_url
                     CASE WHEN new.warc_filename IS NOT NULL AND NOT new.is_duplicate THEN new.warc_content_bytes ELSE 0 END,
                     CASE new.status_code WHEN -9998 THEN 1 ELSE 0 END,     -- blocked
                     0,                                                     -- queued (inserts on crawled_url don't include queued)
-                    0                                                      -- out_of_scope (inserts on crawled_url don't include OOS)
+                    NULL                                                   -- out_of_scope (inserts on crawled_url don't include OOS)
                 WHERE (Select Changes() = 0);
         END;
 
@@ -174,9 +174,9 @@ CREATE TRIGGER collect_seed_host_uncrawled_statistics AFTER INSERT ON uncrawled_
        FOR EACH ROW
        BEGIN
            UPDATE seed_host_statistics
-	       SET
-	           queued = queued + CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END,
-	           blocked = blocked + CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END
+           SET
+               queued = queued + CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END,
+               blocked = blocked + CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END
            WHERE host = new.host AND seed = new.seed;
        INSERT INTO seed_host_statistics (seed, host, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, queued, blocked, out_of_scope)
            SELECT
@@ -185,19 +185,20 @@ CREATE TRIGGER collect_seed_host_uncrawled_statistics AFTER INSERT ON uncrawled_
                0, 0, 0, 0, 0, 0, 0, 0,
                CASE WHEN new.status_code = 0 THEN 1 ELSE 0 END, -- queued
                CASE WHEN new.status_code = -9998 THEN 1 ELSE 0 END, -- blocked
-               0 -- out of scope
+               NULL -- out of scope
            WHERE (Select Changes() = 0);
        END;
 
 CREATE TRIGGER collect_seed_host_oos_statistics AFTER INSERT ON out_of_scope_url
         FOR EACH ROW
+    WHEN new.seed IS NOT NULL
         BEGIN
             UPDATE seed_host_statistics
                 SET
-                    out_of_scope = out_of_scope + 1
+                    out_of_scope = CASE WHEN out_of_scope IS NULL THEN 1 ELSE out_of_scope + 1 END
                 WHERE host = new.host AND seed = new.seed;
             INSERT INTO seed_host_statistics (host, seed, all_count, all_size, new_count, new_size, warc_all_count, warc_new_count, warc_all_content_bytes, warc_new_content_bytes, blocked, queued, out_of_scope)
-	        SELECT
+            SELECT
                     new.host,
                     new.seed,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

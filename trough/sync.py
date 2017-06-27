@@ -32,7 +32,42 @@ def setup_connection(conn):
         except:
             logging.error('REGEXP(%r, %r)', expr, item, exc_info=True)
             raise
-    conn.create_function("REGEXP", 2, regexp)
+
+    def seed_crawled_status_filter(status_code):
+        ''' convert crawler status codes to human-readable test '''
+        try:
+            status_code = int(status_code)
+        except TypeError:
+            return 'Not crawled (%s)' % status_code
+
+        if status_code >= 300 and status_code < 400:
+            return 'Redirected'
+        elif status_code >= 400:
+            return 'Crawled (HTTP error %s)' % status_code
+        elif status_code > 0:
+            return 'Crawled'
+        elif status_code == 0:
+            return 'Not crawled (queued)'
+        elif status_code == -9998:
+            return 'Not crawled (blocked by robots)'
+        else:
+            return 'Not crawled (%s)' % status_code
+
+    def build_redirect_array(redirect_url, redirect_status, hop_path, json_list=None):
+        hop_no = len(hop_path) # parse out "[0-9]+"? how many times will we have 50+ redirects for seeds? maybe 0.
+        if json_list:
+            json_list = json.loads(json_list)
+        else:
+            json_list = []
+        if hop_no > len(json_list):
+            json_list.extend(None for i in range(hop_no - len(json_list)))
+        redirect = {'seed': redirect_url, 'status': seed_crawled_status_filter(redirect_status) }
+        json_list[(hop_no-1)] = redirect
+        return json.dumps(json_list)
+
+    conn.create_function('REGEXP', 2, regexp)
+    conn.create_function('SEEDCRAWLEDSTATUS', 1, seed_crawled_status_filter)
+    conn.create_function('BUILDREDIRECTARRAY', 4, build_redirect_array)
 
 class AssignmentQueue:
     def __init__(self, rethinker):
