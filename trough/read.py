@@ -66,8 +66,8 @@ class ReadServer:
             trough.sync.ensure_tables(rethinker)
             query = env.get('wsgi.input').read()
             write_lock = segment.retrieve_write_lock()
-            if write_lock and write_lock['Node'] != settings['HOSTNAME']:
-                logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['Node']))
+            if write_lock and write_lock['node'] != settings['HOSTNAME']:
+                logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
                 return self.proxy_for_write_host(segment, query)
             return self.read(segment, query)
         except Exception as e:
