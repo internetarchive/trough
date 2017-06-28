@@ -598,13 +598,13 @@ class TestLocalSyncController(unittest.TestCase):
         called = []
         def check_call(*args, **kwargs):
             called.append(True)
-        self.registry.heartbeat = check_call
+        self.registry.bulk_heartbeat = check_call
         controller = self.get_controller()
         with self.assertRaises(Exception):
             controller.sync_segments()
         results = [{}]
         controller.sync_segments()
-        self.assertEqual(called, [True])
+        self.assertEqual(called, [True, True, True])
     def test_provision_writable_segment(self):
         test_segment = sync.Segment('test',
             services=self.services,

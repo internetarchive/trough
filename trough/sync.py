@@ -257,6 +257,8 @@ class HostRegistry(object):
         doc['load'] = os.getloadavg()[1] # load average over last 5 mins
         logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with ttl %s' % (pool, node, node, doc.get('port'), ttl))
         self.services.heartbeat(doc)
+    def bulk_heartbeat(self, ids):
+        self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now() })
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
         asmt = Assignment(self.rethinker, d={ 
@@ -608,7 +610,7 @@ class LocalSyncController(SyncController):
         local_mtimes = { self.segment_name_from_path(path): os.stat(os.path.join(self.local_data, path)).st_mtime for path in local_listing }
         write_locks = { lock.segment: lock for lock in Lock.host_locks(self.rethinker, self.hostname) }
         stale_queue = []
-        segment_health_ttl = self.sync_loop_timing * 4
+        healthy_ids = []
 
         for segment in assignments:
             exists = segment.id in local_mtimes
@@ -618,33 +620,27 @@ class LocalSyncController(SyncController):
                 stale_queue.append(segment)
                 continue
             if write_locks.get(segment.id):
-                logging.info('write heartbeat for segment %s...' % (segment.id))
-                self.registry.heartbeat(pool='trough-write',
-                    segment=segment.id,
-                    node=self.hostname,
-                    port=self.write_port,
-                    url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment.id),
-                    ttl=segment_health_ttl)
-            logging.info('read heartbeat for segment %s...' % (segment.id))
-            self.registry.heartbeat(pool='trough-read',
-                segment=segment.id,
-                node=self.hostname,
-                port=self.read_port,
-                url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment.id),
-                ttl=segment_health_ttl)
+                write_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
+                logging.info('adding bulk write heartbeat for service id %s ...' % (write_id))
+                healthy_ids.append(write_id)
+            read_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
+            logging.info('adding bulk read heartbeat for service id %s...' % (read_id))
+            healthy_ids.append(read_id)
 
+        self.registry.bulk_heartbeat(healthy_ids)
+
+        healthy_ids = []
         for segment in stale_queue:
             if write_locks.get(segment.id):
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(segment, write_locks[segment.id])
             self.copy_segment_from_hdfs(segment)
-            logging.info('read heartbeat for refreshed segment %s...' % (segment.id))
-            self.registry.heartbeat(pool='trough-read',
-                segment=segment.id,
-                node=self.hostname,
-                port=self.read_port,
-                url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment.id),
-                ttl=segment_health_ttl)
+            read_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
+            logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
+            healthy_ids.append(read_id)
+
+        self.registry.bulk_heartbeat(healthy_ids)
+
 
     def provision_writable_segment(self, segment_id):
         # instantiate the segment
