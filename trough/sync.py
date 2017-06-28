@@ -602,8 +602,8 @@ class LocalSyncController(SyncController):
         assignments = self.registry.segments_for_host(self.hostname)
         remote_listing = self.get_segment_file_list()
         remote_mtimes = { self.segment_name_from_path(file['path']): file['modification_time'] / 1000 for file in remote_listing }
-        local_listing = os.scandir(self.local_data)
-        local_mtimes = { self.segment_name_from_path(file.path): file.stat().st_mtime for file in local_listing }
+        local_listing = os.listdir(self.local_data)
+        local_mtimes = { self.segment_name_from_path(path): os.stat(os.path.join(self.local_data, path)).st_mtime for path in local_listing }
         write_locks = { lock.segment: lock for lock in Lock.host_locks(self.rethinker, self.hostname) }
         stale_queue = []
         segment_health_ttl = self.sync_loop_timing * 4
