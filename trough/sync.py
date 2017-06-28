@@ -623,7 +623,7 @@ class LocalSyncController(SyncController):
                 write_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
                 logging.info('adding bulk write heartbeat for service id %s ...' % (write_id))
                 healthy_ids.append(write_id)
-            read_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
+            read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for service id %s...' % (read_id))
             healthy_ids.append(read_id)
 
@@ -635,7 +635,7 @@ class LocalSyncController(SyncController):
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(segment, write_locks[segment.id])
             self.copy_segment_from_hdfs(segment)
-            read_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
+            read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
             healthy_ids.append(read_id)
 
