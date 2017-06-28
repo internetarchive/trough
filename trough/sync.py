@@ -532,23 +532,23 @@ class LocalSyncController(SyncController):
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
-    def check_local_segment_is_fresh(self, segment):
-        logging.info('Checking that segment %s is "fresh" in reference to HDFS.' % (segment.id,))
-        try:
-            snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-            listing = snakebite_client.ls([segment.remote_path()])
-            listing = [item for item in listing]
-            remote_mtime = listing[0]['modification_time'] / 1000
-            local_mtime = os.path.getmtime(segment.local_path())
-            if remote_mtime > local_mtime:
-                logging.info('HDFS version (mtime: %s) is newer for segment %s (mtime: %s). Segment is "stale"' % (remote_mtime, segment.id, local_mtime))
-                return False
-            logging.info('Local copy is "fresh" for segment %s.' % (segment.id,))
-            return True
-        except Exception as e:
-            logging.warning('Exception "%s" occurred while checking freshness for segment %s' % (e, segment.id))
-        logging.warning('Segment %s considered "stale" with reference to HDFS version.' % segment.id)
-        return False
+    # def check_local_segment_is_fresh(self, segment):
+    #     logging.info('Checking that segment %s is "fresh" in reference to HDFS.' % (segment.id,))
+    #     try:
+    #         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    #         listing = snakebite_client.ls([segment.remote_path()])
+    #         listing = [item for item in listing]
+    #         remote_mtime = listing[0]['modification_time'] / 1000
+    #         local_mtime = os.path.getmtime(segment.local_path())
+    #         if remote_mtime > local_mtime:
+    #             logging.info('HDFS version (mtime: %s) is newer for segment %s (mtime: %s). Segment is "stale"' % (remote_mtime, segment.id, local_mtime))
+    #             return False
+    #         logging.info('Local copy is "fresh" for segment %s.' % (segment.id,))
+    #         return True
+    #     except Exception as e:
+    #         logging.warning('Exception "%s" occurred while checking freshness for segment %s' % (e, segment.id))
+    #     logging.warning('Segment %s considered "stale" with reference to HDFS version.' % segment.id)
+    #     return False
 
     def copy_segment_from_hdfs(self, segment):
         logging.info('copying segment %s from HDFS...' % segment.id)
@@ -581,21 +581,41 @@ class LocalSyncController(SyncController):
         self.services.unregister(segment.writable_copy().id)
         write_lock.release()
 
+    def segment_name_from_path(self, path):
+        return path.split("/")[-1].replace('.sqlite', '')
+
     def sync_segments(self):
+        '''
+        1. make a list of segment filenames assigned to this node
+        2. make a list of remote segment file details as a hash table
+        3. maks a list of local segment file details as a hash table
+        4. for each item in the assignment list
+            a. check that the file exists locally
+            b. check that the local mtime is >= remote mtime
+            c. if either check fails, enqueue the segment
+            d. if both succeed, heartbeat (read and write if applicable)
+        5. for each item in the failure queue
+            a. copy the segment from HDFS
+            b. heartbeat
+            c. clean up write services
+        '''
+        assignments = self.registry.segments_for_host(self.hostname)
+        remote_listing = self.get_segment_file_list()
+        remote_mtimes = { self.segment_name_from_path(file['path']): file['modification_time'] / 1000 for file in remote_listing }
+        local_listing = os.scandir(self.local_data)
+        local_mtimes = { self.segment_name_from_path(file.path): file.stat().st_mtime for file in local_listing }
+        write_locks = { lock.segment: lock for lock in Lock.host_locks(self.rethinker, self.hostname) }
+        stale_queue = []
         segment_health_ttl = self.sync_loop_timing * 4
-        for segment in self.registry.segments_for_host(self.hostname):
-            write_lock = segment.local_host_can_write()
-            if segment.remote_path():
-                exists = segment.local_segment_exists()
-                matches_hdfs = self.check_local_segment_is_fresh(segment)
-                if not exists or not matches_hdfs:
-                    self.copy_segment_from_hdfs(segment)
-                    logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
-                    if write_lock:
-                        self.decommission_writable_segment(segment, write_lock)
-                        # don't heartbeat for writable segment if we've just decommissioned it
-                        write_lock = None
-            if write_lock:
+
+        for segment in assignments:
+            exists = segment.id in local_mtimes
+            # TODO: what to do when remote copy is deleted?
+            matches_hdfs = local_mtimes.get(segment.id, -1) >= remote_mtimes.get(segment.id, 0)
+            if not exists or not matches_hdfs:
+                stale_queue.append(segment)
+                continue
+            if write_locks.get(segment.id):
                 logging.info('write heartbeat for segment %s...' % (segment.id))
                 self.registry.heartbeat(pool='trough-write',
                     segment=segment.id,
@@ -604,6 +624,19 @@ class LocalSyncController(SyncController):
                     url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment.id),
                     ttl=segment_health_ttl)
             logging.info('read heartbeat for segment %s...' % (segment.id))
+            self.registry.heartbeat(pool='trough-read',
+                segment=segment.id,
+                node=self.hostname,
+                port=self.read_port,
+                url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment.id),
+                ttl=segment_health_ttl)
+
+        for segment in stale_queue:
+            if write_locks.get(segment.id):
+                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
+                self.decommission_writable_segment(segment, write_locks[segment.id])
+            self.copy_segment_from_hdfs(segment)
+            logging.info('read heartbeat for refreshed segment %s...' % (segment.id))
             self.registry.heartbeat(pool='trough-read',
                 segment=segment.id,
                 node=self.hostname,
