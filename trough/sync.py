@@ -258,7 +258,7 @@ class HostRegistry(object):
         logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with ttl %s' % (pool, node, node, doc.get('port'), ttl))
         self.services.heartbeat(doc)
     def bulk_heartbeat(self, ids):
-        self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now() }).run()
+        self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now(), 'load': os.getloadavg()[1] }).run()
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
         asmt = Assignment(self.rethinker, d={ 
