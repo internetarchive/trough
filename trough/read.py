@@ -14,15 +14,14 @@ import doublethink
 class ReadServer:
     def proxy_for_write_host(self, node, segment, query):
         # enforce that we are querying the correct database, send an explicit hostname.
-        write_url = "http://{node}:{port}?segment={segment}/".format(node=node, segment=segment.id, port=settings['READ_PORT'])
+        write_url = "http://{node}:{port}/?segment={segment}".format(node=node, segment=segment.id, port=settings['READ_PORT'])
         # this "closing" syntax is recommended here: http://docs.python-requests.org/en/master/user/advanced/
         with closing(requests.post(write_url, stream=True, data=query)) as r:
-            # todo: get the response code and the content type header from the response.
             status_line = '{status_code} {reason}'.format(status_code=r.status_code, reason=r.reason)
             # headers [('Content-Type','application/json')]
             headers = [("Content-Type", r.headers['Content-Type'],)]
             self.start_response(status_line, headers)
-            return r.iter_content()
+            yield (chunk.encode('utf-8') for chunk in r.iter_content())
 
     def read(self, segment, query):
         logging.info('Servicing request: {query}'.format(query=query))

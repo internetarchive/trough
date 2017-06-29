@@ -6,6 +6,8 @@ import doublethink
 import pycurl
 from io import BytesIO
 import logging
+from urllib.parse import urlparse, urlencode
+from http.client import HTTPConnection
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -27,23 +29,18 @@ class TroughCursor():
     def _do_read(self, query, raw=False):
         # send query to server, return JSON
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=self.rethinkdb)
-        services = doublethink.ServiceRegistry(rethinker)
-        healthy_databases = list(healthy_services_query(rethinker, role='trough-read').filter({'segment': self.database}).run())
-
-        buffer = BytesIO()
-        c = pycurl.Curl()
-        c.setopt(c.URL, healthy_databases[0].get('url'))
-        c.setopt(c.POSTFIELDS, query)
-        if self.proxy:
-            c.setopt(pycurl.PROXY, self.proxy)
-            c.setopt(pycurl.PROXYPORT, int(self.proxy_port))
-            c.setopt(pycurl.PROXYTYPE, self.proxy_type)
-        c.setopt(c.WRITEDATA, buffer)
-        c.perform()
-
-        if raw:
-            return buffer
-        results = json.loads(buffer.getvalue())
+        healthy_databases = list(rethinker.table('services').get_all(database, index='segment').run())
+        healthy_databases = [db for db in healthy_databases if db['role'] == 'trough-read' and (rethinker.now().run() - db['last_heartbeat']).seconds < db['ttl']]
+        try:
+            assert len(healthy_databases) > 0
+        except:
+            raise Exception('No healthy node found for segment %s' % database)
+        url = urlparse(healthy_databases[0].get('url'))
+        conn = HTTPConnection(url.netloc)
+        request_path = "%s?%s" % (url.path, url.query)
+        conn.request("POST", request_path, query)
+        response = conn.getresponse()
+        results = json.loads(res.read())
         self._last_results = results
 
     def _do_write(self, query):
