@@ -260,7 +260,7 @@ class HostRegistry(object):
     def bulk_heartbeat(self, ids):
         self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now(), 'load': os.getloadavg()[1] }).run()
         # send a non-bulk heartbeat for each id we *didn't* just update
-        missing_ids = r.expr(ids).difference(r.table('services').getAll(**ids).getField('id'))
+        missing_ids = r.expr(ids).difference(r.table('services').get_all(**ids).get_field('id'))
         for id in missing_ids:
             pool, node, segment = id.split(":")
             port = settings['WRITE_PORT'] if pool == 'trough-write' else settings['READ_PORT']
