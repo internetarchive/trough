@@ -21,7 +21,7 @@ class ReadServer:
             # headers [('Content-Type','application/json')]
             headers = [("Content-Type", r.headers['Content-Type'],)]
             self.start_response(status_line, headers)
-            yield (chunk.encode('utf-8') for chunk in r.iter_content())
+            return (chunk.encode('utf-8') for chunk in r.iter_content())
 
     def read(self, segment, query):
         logging.info('Servicing request: {query}'.format(query=query))

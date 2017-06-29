@@ -77,7 +77,7 @@ class TestReadServer(unittest.TestCase):
         def post(*args, **kwargs):
             response = mock.Mock()
             response.headers = {"Content-Type": "application/json"}
-            response.iter_content = lambda: ["test", "output"]
+            response.iter_content = lambda: ("test", "output")
             return response
         requests.post = post
         consul = mock.Mock()
@@ -86,7 +86,7 @@ class TestReadServer(unittest.TestCase):
         services = doublethink.ServiceRegistry(rethinker)
         segment = trough.sync.Segment(segment_id="TEST", rethinker=rethinker, services=services, registry=registry, size=0)
         output = self.server.proxy_for_write_host('localhost', segment, "SELECT * FROM mock;")
-        self.assertEqual(output, ["test", "output"])
+        self.assertEqual(list(output), [b"test", b"output"])
 
 if __name__ == '__main__':
     unittest.main()
