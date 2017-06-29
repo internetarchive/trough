@@ -85,7 +85,7 @@ class TestReadServer(unittest.TestCase):
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
         services = doublethink.ServiceRegistry(rethinker)
         segment = trough.sync.Segment(segment_id="TEST", rethinker=rethinker, services=services, registry=registry, size=0)
-        output = self.server.proxy_for_write_host(segment, "SELECT * FROM mock;")
+        output = self.server.proxy_for_write_host('localhost', segment, "SELECT * FROM mock;")
         self.assertEqual(output, ["test", "output"])
 
 if __name__ == '__main__':
