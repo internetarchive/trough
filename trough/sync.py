@@ -259,6 +259,13 @@ class HostRegistry(object):
         self.services.heartbeat(doc)
     def bulk_heartbeat(self, ids):
         self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now(), 'load': os.getloadavg()[1] }).run()
+        # send a non-bulk heartbeat for each id we *didn't* just update
+        missing_ids = r.expr(ids).difference(r.table('services').getAll(**ids).getField('id'))
+        for id in missing_ids:
+            pool, node, segment = id.split(":")
+            port = settings['WRITE_PORT'] if pool == 'trough-write' else settings['READ_PORT']
+            url = 'http://%s:%s/?segment=%s' % (node, port, segment)
+            self.heartbeat(pool=pool, node=node, segment=segment, port=port, url=url, ttl=round(settings['sync_loop_timing'] * 4))
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
         asmt = Assignment(self.rethinker, d={ 
