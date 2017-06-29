@@ -5,6 +5,7 @@ import re
 import doublethink
 import pycurl
 from io import BytesIO
+import logging
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(

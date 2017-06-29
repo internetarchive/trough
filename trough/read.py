@@ -12,9 +12,9 @@ import urllib
 import doublethink
 
 class ReadServer:
-    def proxy_for_write_host(self, segment, query):
+    def proxy_for_write_host(self, node, segment, query):
         # enforce that we are querying the correct database, send an explicit hostname.
-        write_url = "http://{segment}.trough-write-segments.service.consul:{port}/".format(segment=segment.id, port=settings['READ_PORT'])
+        write_url = "http://{node}:{port}?segment={segment}/".format(node=node, segment=segment.id, port=settings['READ_PORT'])
         # this "closing" syntax is recommended here: http://docs.python-requests.org/en/master/user/advanced/
         with closing(requests.post(write_url, stream=True, data=query)) as r:
             # todo: get the response code and the content type header from the response.
@@ -68,7 +68,7 @@ class ReadServer:
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['node'] != settings['HOSTNAME']:
                 logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
-                return self.proxy_for_write_host(segment, query)
+                return self.proxy_for_write_host(write_lock['node'], segment, query)
             return self.read(segment, query)
         except Exception as e:
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
