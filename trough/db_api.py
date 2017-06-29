@@ -29,12 +29,12 @@ class TroughCursor():
     def _do_read(self, query, raw=False):
         # send query to server, return JSON
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=self.rethinkdb)
-        healthy_databases = list(rethinker.table('services').get_all(database, index='segment').run())
+        healthy_databases = list(rethinker.table('services').get_all(self.database, index='segment').run())
         healthy_databases = [db for db in healthy_databases if db['role'] == 'trough-read' and (rethinker.now().run() - db['last_heartbeat']).seconds < db['ttl']]
         try:
             assert len(healthy_databases) > 0
         except:
-            raise Exception('No healthy node found for segment %s' % database)
+            raise Exception('No healthy node found for segment %s' % self.database)
         url = urlparse(healthy_databases[0].get('url'))
         conn = HTTPConnection(url.netloc)
         request_path = "%s?%s" % (url.path, url.query)
