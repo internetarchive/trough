@@ -40,7 +40,7 @@ class TroughCursor():
         request_path = "%s?%s" % (url.path, url.query)
         conn.request("POST", request_path, query)
         response = conn.getresponse()
-        results = json.loads(res.read())
+        results = json.loads(response.read())
         self._last_results = results
 
     def _do_write(self, query):
