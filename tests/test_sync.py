@@ -13,9 +13,14 @@ import datetime
 import time
 import doublethink
 
+import random
+import string
+
+random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+
 class TestSegment(unittest.TestCase):
     def setUp(self):
-        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         sync.ensure_tables(self.rethinker)
@@ -150,7 +155,7 @@ class TestSegment(unittest.TestCase):
 
 class TestHostRegistry(unittest.TestCase):
     def setUp(self):
-        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         sync.ensure_tables(self.rethinker)
         self.rethinker.table("services").delete().run()
@@ -287,7 +292,7 @@ class TestHostRegistry(unittest.TestCase):
 
 class TestMasterSyncController(unittest.TestCase):
     def setUp(self):
-        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         self.snakebite_client = mock.Mock()
@@ -507,7 +512,7 @@ class TestMasterSyncController(unittest.TestCase):
 
 class TestLocalSyncController(unittest.TestCase):
     def setUp(self):
-        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         self.snakebite_client = mock.Mock()

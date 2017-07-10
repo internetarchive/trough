@@ -492,20 +492,11 @@ class MasterSyncController(SyncController):
         # rebalance the hosts in case any new servers join the cluster
         self.rebalance_hosts()
 
-    def wait_for_write_lock(self, segment_id):
-        lock = None
-        while not lock:
-            lock = Lock.acquire(self.rethinker, pk='master/%s' % segment_id)
-            print(lock)
-        return lock
-
     def provision_writable_segment(self, segment_id):
-        # to protect against querying the non-leader
-        # get the hostname of the leader
-        # if not my hostname, raise exception
-        # acquire a lock for the process of provisioning
-        # with lock:
-        lock = self.wait_for_write_lock(segment_id)
+        # if this node is not the elected master, raise an exception
+        master = self.services.unique_service('trough-sync-master')
+        if master.node != self.hostname:
+            raise Exception('This node is not the sync master (currently %s) and cannot provision writable segments' % master.node)
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
             services=self.services,
@@ -522,7 +513,6 @@ class MasterSyncController(SyncController):
         post_url = 'http://%s:%s/' % (assigned_host['node'], self.sync_port)
         requests.post(post_url, segment_id)
         # explicitly release provisioning lock
-        lock.release()
         # return an http endpoint for POSTs
         return "http://%s:%s/?segment=%s" % (assigned_host['node'], self.write_port, segment_id)
 
