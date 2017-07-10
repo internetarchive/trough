@@ -8,6 +8,7 @@ from io import BytesIO
 import logging
 from urllib.parse import urlparse, urlencode
 from http.client import HTTPConnection
+import socks
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -20,7 +21,7 @@ class TroughCursor():
         self.rethinkdb = rethinkdb
         self.proxy = proxy
         self.proxy_port = proxy_port
-        self.proxy_type = pycurl.PROXYTYPE_SOCKS5 if proxy_type == 'SOCKS5' else pycurl.PROXYTYPE_SOCKS4
+        self.proxy_type = socks.PROXY_TYPE_SOCKS5 if proxy_type == 'SOCKS5' else socks.PROXY_TYPE_SOCKS4
         # use this flag to save time. don't provision database for each query.
         self._writable = False
         #self.rethinker = doublethink.rethinker()
@@ -36,7 +37,14 @@ class TroughCursor():
         except:
             raise Exception('No healthy node found for segment %s' % self.database)
         url = urlparse(healthy_databases[0].get('url'))
-        conn = HTTPConnection(url.netloc)
+        if self.proxy:
+            conn = HTTPConnection(self.proxy, self.proxy_port)
+            conn.set_tunnel(url.netloc, url.port)
+            conn.sock = socks.socksocket()
+            conn.sock.set_proxy(self.proxy_type, self.proxy, self.proxy_port)
+            conn.sock.connect((url.netloc.split(":")[0], url.port))
+        else:
+            conn = HTTPConnection(url.netloc)
         request_path = "%s?%s" % (url.path, url.query)
         conn.request("POST", request_path, query)
         response = conn.getresponse()
