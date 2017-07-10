@@ -495,8 +495,8 @@ class MasterSyncController(SyncController):
     def provision_writable_segment(self, segment_id):
         # if this node is not the elected master, raise an exception
         master = self.services.unique_service('trough-sync-master')
-        if master.node != self.hostname:
-            raise Exception('This node is not the sync master (currently %s) and cannot provision writable segments' % master.node)
+        if master['node'] != self.hostname:
+            raise Exception('This node is not the sync master (currently %s) and cannot provision writable segments' % master['node'])
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
             services=self.services,
