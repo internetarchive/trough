@@ -88,7 +88,7 @@
 - name: Install trough-read supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=3200 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-read.log --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=3200 --socket-timeout=3200 --http--max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-read.log --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-read/run"
