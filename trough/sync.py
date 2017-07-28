@@ -400,32 +400,36 @@ class MasterSyncController(SyncController):
                 registry=self.registry)
             segments.append(segment) # TODO: fix this per comment above.
 
-        # host_ring_mapping will be e.g. { 'host1': 0, 'host2': 1, 'host2': 0, ... }
+        # host_ring_mapping will be e.g. { 'host1': { 'ring': 0, 'weight': 188921 }, 'host2': { 'ring': 0, 'weight': 190190091 }... }
         # the keys are node names, the values are array indices for the hash_rings variable (below)
         host_ring_mapping = Assignment.load(self.rethinker, "ring-assignments")
         if not host_ring_mapping:
             host_ring_mapping = Assignment(self.rethinker, { "id": "ring-assignments" })
 
-        sorted_hosts = sorted(self.registry.host_load(), key=lambda host: host['node'])
+        host_dict = {host['node']: host for host in self.registry.host_load()}
 
-        # instantiate N hash rings where N is the lesser of the maximum number of copies of a given segment
-        # and the number of currently available hosts
+        # instantiate N hash rings where N is the lesser of (the maximum number of copies of any segment)
+        # and (the number of currently available hosts)
         hash_rings = []
-        for i in range(min(max_copies, len(sorted_hosts))):
+        for i in range(min(max_copies, len(host_dict.keys()))):
             ring = HashRing()
             ring.id = i
             hash_rings.append(ring)
 
         # assign each host to one hash ring. Save the assignment in rethink so it's reproducible.
         # weight each host assigned to a hash ring with its total assignable bytes quota
-        i = 0
-        for host in sorted_hosts:
-            if host['node'] not in host_ring_mapping:
-                host_ring = i % max_copies
-                host_ring_mapping[host['node']] = host_ring
-            hash_rings[host_ring_mapping[host['node']]].add_node(host['node'], { 'weight': host['total_bytes'] })
-            logging.info("Host '%s' assigned to ring %s" % (host['node'], host_ring_mapping[host['node']]))
-            i += 1
+        for hostname in [key for key in host_ring_mapping.keys() if key != 'id']:
+            host = host_ring_mapping[hostname]
+            print(host)
+            hash_rings[host['ring']].add_node(hostname, { 'weight': host['weight'] })
+            logging.info("Host '%s' assigned to ring %s" % (hostname, host_ring))
+
+        for host in [host for host in host_dict.keys() if host not in host_ring_mapping]:
+            host = host_dict[host]
+            host_ring = sorted(hash_rings, key=lambda ring: len(ring.get_nodes()))[0].id
+            host_ring_mapping[host['node']] = { 'weight': host['total_bytes'], 'ring': host_ring }
+            hash_rings[host_ring].add_node(host['node'], { 'weight': host['total_bytes'] })
+            logging.info("Host '%s' assigned to ring %s" % (host['node'], host_ring))
         host_ring_mapping.save()
 
         # 'ring_assignments' will be like { "0-192811": Assignment(), "1-192811": Assignment()... }
