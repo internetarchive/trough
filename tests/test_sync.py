@@ -12,6 +12,7 @@ import threading
 import datetime
 import time
 import doublethink
+import rethinkdb as r 
 
 import random
 import string
@@ -396,117 +397,10 @@ class TestMasterSyncController(unittest.TestCase):
             available_bytes=1024*1024)
         controller = self.get_local_controller()
         controller.assign_segments()
-        assignments = [asmt for asmt in self.rethinker.table('assignment').run()]
+        assignments = [asmt for asmt in self.rethinker.table('assignment').filter(r.row['id'] != 'ring-assignments').run()]
         self.assertEqual(len(assignments), 1)
         self.assertEqual(assignments[0]['bytes'], 1024 * 1000)
-    @mock.patch("trough.sync.client")
-    def test_rebalance_hosts(self, snakebite):
-        self.rethinker.table("assignment").delete().run()
-        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        hosts = ['test1.example.com','test2.example.com','test3.example.com']
-        for host in hosts:
-            registry.heartbeat(pool='trough-nodes',
-                service_id='trough:nodes:%s' % host,
-                node=host,
-                ttl=3,
-                available_bytes=1024*1024)
-        segment = sync.Segment('test-segment-1',
-            services=self.services,
-            rethinker=self.rethinker,
-            registry=registry,
-            size=1024)
-        registry.assign(hostname=hosts[0], segment=segment, remote_path="/fake/path")
-        segment = sync.Segment('test-segment-2',
-            services=self.services,
-            rethinker=self.rethinker,
-            registry=registry,
-            size=1024)
-        registry.assign(hostname=hosts[0], segment=segment, remote_path="/fake/path")
-        segment = sync.Segment('test-segment-3',
-            services=self.services,
-            rethinker=self.rethinker,
-            registry=registry,
-            size=1024)
-        registry.assign(hostname=hosts[1], segment=segment, remote_path="/fake/path")
-        segment = sync.Segment('test-segment-4',
-            services=self.services,
-            rethinker=self.rethinker,
-            registry=registry,
-            size=1024 * 1000)
-        registry.assign(hostname=hosts[1], segment=segment, remote_path="/fake/path")
-        registry.commit_assignments()
-
-        record_list = []
-        class C:
-            def __init__(*args, **kwargs):
-                pass
-            def ls(*args, **kwargs):
-                for record in record_list:
-                    yield record
-        snakebite.Client = C
-        # zero segments
-        controller = sync.MasterSyncController(
-            rethinker=self.rethinker,
-            services=self.services,
-            registry=self.registry)
-        controller.rebalance_hosts()
-        self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 0)
-        # equal load
-        record_list = [
-            {'length': 1024 * 128, 'path': '/seg0.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg1.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg2.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg3.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg4.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg5.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg6.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg7.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg8.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg9.sqlite'},
-        ]
-        self.rethinker.table("assignment").delete().run()
-        for i in range(0, 10):
-            segment = sync.Segment('test-segment-%s' % i,
-                services=self.services,
-                rethinker=self.rethinker,
-                registry=registry,
-                size=1024 * 128)
-            registry.assign(hostname=hosts[i%2], segment=segment, remote_path='/seg%s.sqlite' % i)
-        registry.commit_assignments()
-        host_load = self.registry.host_load()
-        controller = sync.MasterSyncController(
-            rethinker=self.rethinker,
-            services=self.services,
-            registry=self.registry)
-        controller.rebalance_hosts()
-        self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 3)
-        # one segment much larger than others
-        record_list = [
-            {'length': 1024 * 1000, 'path': '/seg1.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg2.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg3.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg4.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg5.sqlite'},
-            {'length': 1024 * 128, 'path': '/seg6.sqlite'},
-        ]
-        self.rethinker.table("assignment").delete().run()
-        for i in range(0, 6):
-            segment = sync.Segment('test-segment-%s' % i,
-                services=self.services,
-                rethinker=self.rethinker,
-                registry=registry,
-                size=1024 * 1000 if i == 0 else 1024 * 128)
-            registry.assign(hostname=hosts[1] if i == 0 else hosts[0], segment=segment, remote_path='/fake/path')
-        registry.commit_assignments()
-        host_load = self.registry.host_load()
-        controller = sync.MasterSyncController(
-            rethinker=self.rethinker,
-            services=self.services,
-            registry=self.registry)
-        controller.rebalance_hosts()
-        self.assertEqual(len([i for i in self.rethinker.table('assignment').filter({'host': hosts[2]}).run()]), 0)
-        self.rethinker.table("assignment").delete().run()
-
+        self.assertEqual(assignments[0]['hash_ring'], 0)
     def test_sync(self):
         pass
 
@@ -521,36 +415,6 @@ class TestLocalSyncController(unittest.TestCase):
         return sync.LocalSyncController(rethinker=self.rethinker,
             services=self.services,
             registry=self.registry)
-    # @mock.patch("trough.sync.client")
-    # @mock.patch("trough.sync.os.path")
-    # def test_check_local_segment_is_fresh(self, path, snakebite):
-    #     test_value = 100
-    #     timestamp = 1497507172.940573
-    #     def gm(*args, **kwargs):
-    #         return timestamp
-    #     def gs(*args, **kwargs):
-    #         return test_value
-    #     path.getmtime = gm
-    #     path.getsize = gs
-    #     record_list = [{'length': 100, 'path': '/test-segment.sqlite', 'modification_time': 1497506983860 }]
-    #     class C:
-    #         def __init__(*args, **kwargs):
-    #             pass
-    #         def ls(*args, **kwargs):
-    #             for record in record_list:
-    #                 yield record
-    #     snakebite.Client = C
-    #     controller = self.get_controller()
-    #     segment = sync.Segment('test-segment',
-    #         services=self.services,
-    #         rethinker=self.rethinker,
-    #         registry=self.registry,
-    #         size=100)
-    #     output = controller.check_local_segment_is_fresh(segment)
-    #     self.assertEqual(output, True)
-    #     timestamp = 1497506978.949731
-    #     output = controller.check_local_segment_is_fresh(segment)
-    #     self.assertEqual(output, False)
     # v don't log out the error message on error test below.
     @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.logging.error")

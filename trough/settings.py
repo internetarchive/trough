@@ -53,6 +53,7 @@ settings = {
     'SYNC_LOOP_TIMING': 60 * 2, # do a 'sync' loop every N seconds (default: 2m. applies to both local and master sync nodes)
     'RETHINKDB_HOSTS': ["localhost",],
     'MINIMUM_ASSIGNMENTS': 2,
+    'MAXIMUM_ASSIGNMENTS': 2,
     'LOG_LEVEL': 'INFO',
     'SEGMENT_INITIALIZATION_SQL': os.path.join(os.path.dirname(__file__), os.path.pardir, "conf", "intialize.sql"),
     'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.

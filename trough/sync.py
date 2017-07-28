@@ -16,6 +16,7 @@ import datetime
 import sqlite3
 import re
 import contextlib
+from uhashring import HashRing
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -86,7 +87,7 @@ class AssignmentQueue:
 class Assignment(doublethink.Document):
     def populate_defaults(self):
         if not "id" in self:
-            self.id = "{host}:{segment}".format(host=self.host, segment=self.segment)
+            self.id = "{node}:{segment}".format(node=self.node, segment=self.segment)
             self._pk = "id"
     @classmethod
     def table_create(cls, rr):
@@ -94,8 +95,11 @@ class Assignment(doublethink.Document):
         rr.table(cls.table).index_create('segment').run()
         rr.table(cls.table).index_wait('segment').run()
     @classmethod
-    def host_assignments(cls, rr, host):
-        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).between('%s:\x01' % host, '%s:\x7f' % host, right_bound="closed").run())
+    def host_assignments(cls, rr, node):
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).between('%s:\x01' % node, '%s:\x7f' % node, right_bound="closed").run())
+    @classmethod
+    def all(cls, rr):
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).run())
     @classmethod
     def segment_assignments(cls, rr, segment):
         return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, index="segment").run())
@@ -129,12 +133,13 @@ def ensure_tables(rethinker):
     Lock.table_ensure(rethinker)
 
 class Segment(object):
-    def __init__(self, segment_id, size, rethinker, services, registry):
+    def __init__(self, segment_id, size, rethinker, services, registry, remote_path=None):
         self.id = segment_id
         self.size = int(size)
         self.rethinker = rethinker
         self.services = services
         self.registry = registry
+        self._remote_path = remote_path
     def host_key(self, host):
         return "%s:%s" % (host, self.id)
     def all_copies(self):
@@ -179,6 +184,8 @@ class Segment(object):
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def remote_path(self):
+        if self._remote_path:
+            return self._remote_path
         asmt = Assignment.load(self.rethinker, self.host_key(settings['HOSTNAME']))
         if asmt:
             return asmt.remote_path
@@ -269,7 +276,7 @@ class HostRegistry(object):
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
         asmt = Assignment(self.rethinker, d={ 
-            'host': hostname,
+            'node': hostname,
             'segment': segment.id,
             'assigned_on': r.now(),
             'remote_path': remote_path,
@@ -375,112 +382,101 @@ class MasterSyncController(SyncController):
             time.sleep(self.host_check_wait_period)
 
     def assign_segments(self):
-        logging.info('Assigning segments...')
-        for file in self.get_segment_file_list():
-            local_part = file['path'].split('/')[-1]
-            local_part = local_part.replace('.sqlite', '')
-            segment = Segment(segment_id=local_part, rethinker=self.rethinker, services=self.services, registry=self.registry, size=file['length'])
-            assignment_count = len([1 for cpy in segment.all_copies()])
-            logging.info("Checking segment [%s]:  %s assignments of %s minimum assignments." % (segment.id, assignment_count, segment.minimum_assignments()))
-            if assignment_count < segment.minimum_assignments():
-                host_load = self.registry.host_load()
-                logging.info('Calculated Host Load: %s' % host_load)
-                emptiest_host = sorted(host_load, key=lambda host: host['assigned_bytes'])[0]
-                # assign the byte count of the file to a key named, e.g. /hostA/segment
-                self.registry.assign(emptiest_host['node'], segment, remote_path=file['path'])
-            elif assignment_count > segment.minimum_assignments():
-                # If we find too many 'up' copies
-                if len([1 for cpy in segment.readable_copies()]) > segment.minimum_assignments():
-                    # delete the copy with the lowest 'assigned_on', which records the
-                    # date on which assignments are created.
-                    assignments = segment.all_copies()
-                    assignments = sorted(assignments, key=lambda record: record['assigned_on'])
-                    # remove the assignment
-                    assignments[0].unassign()
+        logging.info('Assigning and balancing segments...')
+        max_copies = settings['MAXIMUM_ASSIGNMENTS']
+
+        # get segment list
+        # output is like ({ "path": "/a/b/c/segmentA.sqlite" }, { "path": "/a/b/c/segmentB.sqlite" })
+        segment_files = self.get_segment_file_list()
+        # output is like [Segment("segmentA"), Segment("segmentB")]
+        segments = []
+        for file in segment_files:
+            segment = Segment(
+                segment_id=file['path'].split('/')[-1].replace('.sqlite', ''),
+                size=file['length'],
+                remote_path=file['path'],
+                rethinker=self.rethinker,
+                services=self.services,
+                registry=self.registry)
+            segments.append(segment) # TODO: fix this per comment above.
+
+        # host_ring_mapping will be e.g. { 'host1': 0, 'host2': 1, 'host2': 0, ... }
+        # the keys are node names, the values are array indices for the hash_rings variable (below)
+        host_ring_mapping = Assignment.load(self.rethinker, "ring-assignments")
+        if not host_ring_mapping:
+            host_ring_mapping = Assignment(self.rethinker, { "id": "ring-assignments" })
+
+        sorted_hosts = sorted(self.registry.host_load(), key=lambda host: host['node'])
+
+        # instantiate N hash rings where N is the lesser of the maximum number of copies of a given segment
+        # and the number of currently available hosts
+        hash_rings = []
+        for i in range(min(max_copies, len(sorted_hosts))):
+            ring = HashRing()
+            ring.id = i
+            hash_rings.append(ring)
+
+        # assign each host to one hash ring. Save the assignment in rethink so it's reproducible.
+        # weight each host assigned to a hash ring with its total assignable bytes quota
+        i = 0
+        for host in sorted_hosts:
+            if host['node'] not in host_ring_mapping:
+                host_ring = i % max_copies
+                host_ring_mapping[host['node']] = host_ring
+            hash_rings[host_ring_mapping[host['node']]].add_node(host['node'], { 'weight': host['total_bytes'] })
+            logging.info("Host '%s' assigned to ring %s" % (host['node'], host_ring_mapping[host['node']]))
+            i += 1
+        host_ring_mapping.save()
+
+        # 'ring_assignments' will be like { "0-192811": Assignment(), "1-192811": Assignment()... }
+        ring_assignments = {}
+        for assignment in Assignment.all(self.rethinker):
+            if assignment.id != 'ring-assignments':
+                dict_key = "%s-%s" % (assignment.hash_ring, assignment.segment)
+                ring_assignments[dict_key] = assignment
+
+        # for each segment in segment list:
+        for segment in segments:
+            logging.info("Assigning segment [%s]" % (segment.id))
+            # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
+            random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
+            assigned_rings = random.sample(hash_rings, segment.minimum_assignments())
+            logging.info("Segment [%s] will use rings %s" % (segment.id, [s.id for s in assigned_rings]))
+            for ring in assigned_rings:
+                # get the node for the key from hash ring, updating or creating assignments from corresponding entry in 'ring_assignments' as necessary
+                assigned_node = ring.get_node(segment.id)
+                dict_key = "%s-%s" % (ring.id, segment.id)
+                assignment = ring_assignments.get(dict_key)
+                logging.info("Current assignment: '%s' New assignment: '%s'" % (assignment.node if assignment else None, assigned_node))
+                if assignment is None or assignment.node != assigned_node:
+                    logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]" % (segment.id, assigned_node, ring.id))
+                    if assignment:
+                        logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)" % (assignment.node, segment.id, assignment))
+                        assignment.unassign()
+                        del assignment['id']
+                    ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
+                                                        'hash_ring': ring.id,
+                                                        'node': assigned_node,
+                                                        'segment': segment.id,
+                                                        'assigned_on': r.now(),
+                                                        'remote_path': segment.remote_path(),
+                                                        'bytes': segment.size }))
+                    ring_assignments[dict_key]['node'] = assigned_node
+                    self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
+        logging.info("Committing %s assignments" % (self.registry.assignment_queue.length()))
+        # commit assignments that were created or updated
         self.registry.commit_assignments()
 
-    def rebalance_hosts(self):
-        logging.info('Rebalancing Hosts...')
-        hosts = self.registry.host_load()
-        largest_segment_size = 0
-        segment_file_list = self.get_segment_file_list()
-        segment_count = 0
-        for segment in segment_file_list:
-            segment_count += 1
-            if segment['length'] > largest_segment_size:
-                largest_segment_size = segment['length']
-        logging.info('Found a largest segment size of %s bytes' % largest_segment_size)
-        min_acceptable_load = self.registry.min_acceptable_load_ratio(hosts, largest_segment_size)
-        # filter out any hosts that have very little free space *and* are underloaded. They can't be fixed, most likely.
-        nonfull_nonunderloaded_hosts = [host for host in hosts if not (host['load_ratio'] < min_acceptable_load and host['remaining_bytes'] <= largest_segment_size)]
-        # sort hosts descending
-        sorted_hosts = sorted(nonfull_nonunderloaded_hosts, key=lambda host: host['load_ratio'], reverse=True)
-        logging.info("Non-full hosts which are underloaded: %s" % sorted_hosts)
-        queue = []
-        assignment_cache = {}
-        last_reassignment = None
-        counter = 0
-        while sorted_hosts[-1]['load_ratio'] < min_acceptable_load and len(sorted_hosts) >= 2 and counter < segment_count:
-            counter += 1
-            logging.info("Looping while the least-loaded host's load ratio (%s) is less than %s and there are at least 2 hosts to assign from/to (there are %s)" % (sorted_hosts[-1]['load_ratio'], min_acceptable_load, sorted_hosts))
-            # get the top-loaded host
-            top_host = sorted_hosts[0]
-            underloaded_host = sorted_hosts[-1]
-            # if we haven't seen this host before, cache a list of its segments
-            if top_host['node'] not in assignment_cache:
-                assignment_cache[top_host['node']] = [asmt for asmt in Assignment.host_assignments(self.rethinker, top_host['node'])]
-                # shuffle segment order so when we .pop() it selects a random segment.
-                random.shuffle(assignment_cache[top_host['node']])
-            # pick a segment assigned to the top-loaded host
-            #print("assignment_cache[top_host['node']]: %s " % assignment_cache[top_host['node']])
-            reassign_from = assignment_cache[top_host['node']].pop()
-            segment_name = reassign_from.segment
-            reassign_to = Assignment(self.rethinker, d={
-                'host': underloaded_host['node'],
-                'segment': reassign_from.segment,
-                'assigned_on': r.now(),
-                'remote_path': reassign_from.remote_path,
-                'bytes': reassign_from.bytes })
-            reassignment = (reassign_from, reassign_to)
-            segment_bytes = reassign_from.bytes
-            # if our last reassignment is the same as the current reassignment, there's only one segment on this host. Pop it.
-            if reassign_from == last_reassignment:
-                hosts.pop(0)
-                continue
-            last_reassignment = reassign_from
-            # if this segment is already assigned to the bottom loaded host, put it back in at the top of the list and loop.
-            if Assignment.load(self.rethinker, "%s:%s" % (reassign_to.host, reassign_to.segment)):
-                assignment_cache[top_host['node']].insert(0, reassign_from)
-                continue
-            # enqueue segment
-            queue.append(reassignment)
-            # recalculate host load
-            top_host['assigned_bytes'] -= segment_bytes
-            top_host['remaining_bytes'] += segment_bytes
-            top_host['load_ratio'] = top_host['assigned_bytes'] / top_host['total_bytes']
-            underloaded_host['assigned_bytes'] += segment_bytes
-            underloaded_host['remaining_bytes'] -= segment_bytes
-            underloaded_host['load_ratio'] = underloaded_host['assigned_bytes'] / underloaded_host['total_bytes']
-            sorted_hosts.sort(key=lambda host: host['load_ratio'], reverse=True)
-        # perform the queued reassignments. We set a key value pair in consul to assign.
-        for reassignment in queue:
-            reassignment[1].save()
 
     def sync(self):
         ''' 
         "server" mode:
         - if I am not the leader, poll forever
-        - if there are hosts to assign to, poll forever.
+        - if there are no hosts to assign to, poll forever.
         - for entire list of segments that match pattern in REMOTE_DATA setting:
-            - check consul to make sure each item is assigned to a worker
+            - check rethinkdb to make sure each item is assigned to a worker
             - if it is not assigned:
-                - assign it, based on the available quota on each worker
-            - if the number of assignments for this segment are greater than they should be, and all copies are 'up':
-                - unassign the copy with the lowest assignment index
-        - for list of hosts:
-            - if this host meets a "too empty" metric
-                - loop over the segments
-                - add extra assignments to the "too empty" host in a ratio of segments which corresponds to the delta from the average load.
+                - assign it using consistent hash rings, based on the available quota on each worker
         '''
         self.found_hosts = False
         # loops indefinitely waiting to become leader.
@@ -489,8 +485,6 @@ class MasterSyncController(SyncController):
         self.wait_for_hosts()
         # assign each segment we found in our HDFS file listing
         self.assign_segments()
-        # rebalance the hosts in case any new servers join the cluster
-        self.rebalance_hosts()
 
     def provision_writable_segment(self, segment_id):
         # if this node is not the elected master, raise an exception

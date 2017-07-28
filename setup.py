@@ -25,6 +25,7 @@ setup(
         'sqlparse==0.2.2',
         'uWSGI==2.0.14',
         'doublethink>=0.2.0.dev82',
+        'uhashring==0.7',
     ],
     scripts=glob.glob('scripts/*.py'),
 )
