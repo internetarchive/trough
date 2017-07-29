@@ -466,6 +466,7 @@ class MasterSyncController(SyncController):
                                                         'remote_path': segment.remote_path(),
                                                         'bytes': segment.size }))
                     ring_assignments[dict_key]['node'] = assigned_node
+                    ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
                     self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
         logging.info("Committing %s assignments" % (self.registry.assignment_queue.length()))
         # commit assignments that were created or updated
