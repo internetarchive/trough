@@ -114,16 +114,6 @@
     owner: root
     mode: 0744
 
-- name: Install daemontools logging for trough-write-provisioner-local
-  become: true
-  vars:
-    command: "setuidgid {{user}} multilog t ./main"
-  template:
-    src: service-skeleton.j2
-    dest: "/etc/service/trough-write-provisioner-local/log/run"
-    owner: "{{user}}"
-    mode: 0755
-
 - name: Start trough-write-provisioner-local
   become: true
   svc:

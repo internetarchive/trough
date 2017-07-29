@@ -16,7 +16,7 @@
     end_port: 28015
   template:
     src: templates/open-ports.ferm.j2
-    dest: /etc/ferm/input/cluster.rethinkdb.communication.port
+    dest: /etc/ferm/input/client.rethinkdb.communication.port
 
 - name: Open RethinkDB UI http port
   become_user: root
