@@ -422,7 +422,7 @@ class MasterSyncController(SyncController):
             host = host_ring_mapping[hostname]
             print(host)
             hash_rings[host['ring']].add_node(hostname, { 'weight': host['weight'] })
-            logging.info("Host '%s' assigned to ring %s" % (hostname, host_ring))
+            logging.info("Host '%s' assigned to ring %s" % (hostname, host['ring']))
 
         for host in [host for host in host_dict.keys() if host not in host_ring_mapping]:
             host = host_dict[host]
