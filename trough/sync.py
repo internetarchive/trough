@@ -693,6 +693,16 @@ class LocalSyncController(SyncController):
         # sync my local segments with HDFS
         self.sync_segments()
 
+    def collect_garbage(self):
+        local_listing = os.listdir(self.local_data)
+        assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
+        for item in local_listing:
+            if local_listing.split(".")[0] not in assignments:
+                path = os.path.join(self.local_data, item)
+                logging.info("Deleting unassigned file: %s" % path)
+                os.remove(path)
+
+
 def get_controller(server_mode):
     logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
     rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
