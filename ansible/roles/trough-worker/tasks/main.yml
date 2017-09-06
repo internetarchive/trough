@@ -9,6 +9,14 @@
     group: bin
     createhome: no
 
+- name: Ensure Trough user can write to local_data
+  become: true
+  file:
+    path: "{{ local_data }}"
+    group: bin
+    owner: trough
+    mode: 0775
+
 - name: Ensure Trough user can write to venv_root
   become: true
   file:

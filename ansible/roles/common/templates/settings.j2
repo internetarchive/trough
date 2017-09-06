@@ -5,6 +5,7 @@ MINIMUM_ASSIGNMENTS: "{{ minimum_assignments }}"
 HOSTNAME: {{ ansible_hostname }}
 SEGMENT_INITIALIZATION_SQL: /etc/trough/initialize.sql
 SYNC_LOOP_TIMING: {{ sync_loop_timing }}
+LOCAL_DATA: {{ local_data }}
 RETHINKDB_HOSTS:
 {% for node in groups['rethinkdb'] %}
   - {{node}}

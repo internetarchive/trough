@@ -1,6 +1,7 @@
 ---
 user: trough
 venv_root: /opt
+local_data: /var/tmp/trough
 read_port: 6444
 write_port: 6222
 sync_port: 6111
