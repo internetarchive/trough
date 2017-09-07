@@ -212,7 +212,9 @@ class HostRegistry(object):
         self.services = services
         self.assignment_queue = AssignmentQueue(self.rethinker)
     def get_hosts(self):
-        return self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').run()
+        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(                                               
+                   lambda svc: r.now().sub(svc["last_heartbeat"]) < svc["ttl"]   #.default(20.0)
+               ).order_by("load").run())
     def hosts_exist(self):
         output = bool(self.get_hosts())
         logging.debug("Looking for hosts. Found: %s" % output)
