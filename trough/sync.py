@@ -146,7 +146,9 @@ class Segment(object):
         ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
         return Assignment.segment_assignments(self.rethinker, self.id)
     def readable_copies_query(self):
-        return healthy_services_query(self.rethinker, role='trough-read').filter({ 'segment': self.id })
+        return self.rethinker.table('services').get_all(self.id, index="segment").filter({"role": 'trough-read'}).filter(
+                lambda svc: r.now().sub(svc["last_heartbeat"]) < svc["ttl"]
+            )
     def readable_copies(self):
         '''returns the 'up' copies of this segment to read from, per rethinkdb.'''
         return self.readable_copies_query().run()
