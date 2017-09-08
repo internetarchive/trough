@@ -396,6 +396,10 @@ class MasterSyncController(SyncController):
     def assign_segments(self):
         logging.info('Assigning and balancing segments...')
         max_copies = settings['MAXIMUM_ASSIGNMENTS']
+        if self.hold_election():
+            last_heartbeat = datetime.datetime.now()
+        else:
+            return False
 
         # get segment list
         # output is like ({ "path": "/a/b/c/segmentA.sqlite" }, { "path": "/a/b/c/segmentB.sqlite" })
@@ -453,6 +457,12 @@ class MasterSyncController(SyncController):
 
         # for each segment in segment list:
         for segment in segments:
+            # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
+            if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
+                if self.hold_election():
+                    last_heartbeat = datetime.datetime.now()
+                else:
+                    return False
             logging.info("Assigning segment [%s]" % (segment.id))
             # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
