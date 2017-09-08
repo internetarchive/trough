@@ -698,10 +698,9 @@ class LocalSyncController(SyncController):
         self.sync_segments()
 
     def collect_garbage(self):
-        local_listing = os.listdir(self.local_data)
         assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
-        for item in local_listing:
-            if local_listing.split(".")[0] not in assignments:
+        for item in os.listdir(self.local_data):
+            if item.split(".")[0] not in assignments:
                 path = os.path.join(self.local_data, item)
                 logging.info("Deleting unassigned file: %s" % path)
                 os.remove(path)
