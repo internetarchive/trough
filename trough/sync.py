@@ -131,6 +131,14 @@ class Lock(doublethink.Document):
 def ensure_tables(rethinker):
     Assignment.table_ensure(rethinker)
     Lock.table_ensure(rethinker)
+    try:
+        rethinker.table('services').index_create('segment').run()
+        rethinker.table('services').index_wait('segment').run()
+        rethinker.table('services').index_create('role').run()
+        rethinker.table('services').index_wait('role').run()
+    except Exception as e:
+        pass
+
 
 class Segment(object):
     def __init__(self, segment_id, size, rethinker, services, registry, remote_path=None):
@@ -631,9 +639,10 @@ class LocalSyncController(SyncController):
 
         healthy_ids = []
         for segment in stale_queue:
-            if write_locks.get(segment.id):
+            write_lock = segment.retrieve_write_lock()
+            if write_lock:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
-                self.decommission_writable_segment(segment, write_locks[segment.id])
+                self.decommission_writable_segment(segment, write_lock)
             self.copy_segment_from_hdfs(segment)
             read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
