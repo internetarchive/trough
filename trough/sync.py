@@ -620,6 +620,9 @@ class LocalSyncController(SyncController):
             b. heartbeat
             c. clean up write services
         '''
+        # reset the TTL health check for this node. I still function!
+        self.heartbeat()
+        last_heartbeat = datetime.datetime.now()
         assignments = self.registry.segments_for_host(self.hostname)
         remote_listing = self.get_segment_file_list()
         logging.info('assembling remote file modification times...')
@@ -658,7 +661,9 @@ class LocalSyncController(SyncController):
             read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
             healthy_ids.append(read_id)
-
+            if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * round(settings['SYNC_LOOP_TIMING'] * 4)) > last_heartbeat:
+                self.heartbeat()
+                last_heartbeat = datetime.datetime.now()
         self.registry.bulk_heartbeat(healthy_ids)
 
 
@@ -699,22 +704,14 @@ class LocalSyncController(SyncController):
         - if not set up, 
             - set myself up as a host for a consul service as a read or write host depending on settings.
         - reset the countdown on my health check, if it exists
-        - figure out what my data limit is (look it up from settings), persisting to consul.
         - query consul for the assignment list for my hostname
-        - start 'timer'
-        - for each item in the list:
             - check that we have a copy
-            - check that the copy we have matches the byte size in hdfs
+            - check that the copy we have is the same or newer than hdfs copy
             - if either check fails:
                 - copy file down from hdfs
                 - set up a health check (TTL) for this segment, 2 * 'segment_timer'
             - touch segment health check
-        - end 'timer'
-        - set up a health check (TTL) for myself, 2 * 'timer'
         '''
-        # reset the TTL health check for this node. I still function!
-        self.heartbeat()
-        # sync my local segments with HDFS
         self.sync_segments()
 
     def collect_garbage(self):
