@@ -432,6 +432,10 @@ class MasterSyncController(SyncController):
             ring.id = i
             hash_rings.append(ring)
 
+        # prune hosts that don't exist anymore
+        for host in [key for key in host_ring_mapping.keys() if key not in host_dict and key != 'id']:
+            del(host_ring_mapping[host])
+
         # assign each host to one hash ring. Save the assignment in rethink so it's reproducible.
         # weight each host assigned to a hash ring with its total assignable bytes quota
         for hostname in [key for key in host_ring_mapping.keys() if key != 'id']:
@@ -445,10 +449,6 @@ class MasterSyncController(SyncController):
             host_ring_mapping[host['node']] = { 'weight': host['total_bytes'], 'ring': host_ring }
             hash_rings[host_ring].add_node(host['node'], { 'weight': host['total_bytes'] })
             logging.info("Host '%s' assigned to ring %s" % (host['node'], host_ring))
-
-        # prune hosts that don't exist anymore
-        for host in [key for key in host_ring_mapping.keys() if key not in host_dict and key != 'id']:
-            del(host_ring_mapping[host])
 
         host_ring_mapping.save()
 
