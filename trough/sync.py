@@ -436,7 +436,6 @@ class MasterSyncController(SyncController):
         # weight each host assigned to a hash ring with its total assignable bytes quota
         for hostname in [key for key in host_ring_mapping.keys() if key != 'id']:
             host = host_ring_mapping[hostname]
-            print(host)
             hash_rings[host['ring']].add_node(hostname, { 'weight': host['weight'] })
             logging.info("Host '%s' assigned to ring %s" % (hostname, host['ring']))
 
@@ -446,6 +445,11 @@ class MasterSyncController(SyncController):
             host_ring_mapping[host['node']] = { 'weight': host['total_bytes'], 'ring': host_ring }
             hash_rings[host_ring].add_node(host['node'], { 'weight': host['total_bytes'] })
             logging.info("Host '%s' assigned to ring %s" % (host['node'], host_ring))
+
+        # prune hosts that don't exist anymore
+        for host in [key for key in host_ring_mapping.keys() if key not in host_dict and key != 'id']:
+            del(host_ring_mapping[host])
+
         host_ring_mapping.save()
 
         # 'ring_assignments' will be like { "0-192811": Assignment(), "1-192811": Assignment()... }
