@@ -13,6 +13,7 @@
   become: true
   file:
     path: "{{ local_data }}"
+    state: directory
     group: bin
     owner: trough
     mode: 0775
