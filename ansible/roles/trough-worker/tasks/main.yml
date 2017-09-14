@@ -32,7 +32,7 @@
     state: touch
     owner: "{{user}}"
   with_items:
-    - sync-local
+    - trough-sync-local
     - trough-write
     - trough-read
     - trough-write-provisioner-local
@@ -44,7 +44,7 @@
     state: directory
     owner: root
   with_items:
-    - sync-local
+    - trough-sync-local
     - trough-write
     - trough-read
     - trough-write-provisioner-local
@@ -58,23 +58,23 @@
        editable=false
        extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
 
-- name: Install sync-local supervised by daemontools in /etc/service
+- name: Install trough-sync-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/sync-local.log 2>&1"
+    command: "sudo -u {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/trough-sync-local.log 2>&1"
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/sync-local/run"
+    dest: "/etc/service/trough-sync-local/run"
     owner: root
     mode: 0755
 
-- name: "Start sync-local" 
+- name: "Start trough-sync-local"
   become: true
   svc:
-    name: sync-local
+    name: trough-sync-local
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/sync-local"
+    service_dir: "/etc/service/trough-sync-local"
 
 - name: Install trough-write supervised by daemontools in /etc/service
   become: true

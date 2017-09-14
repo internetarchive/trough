@@ -23,8 +23,8 @@
     state: touch
     owner: "{{user}}"
   with_items:
-    - sync-server
-    - write-provisioner
+    - trough-sync-server
+    - trough-write-provisioner
 
 - name: Ensure daemontools service directories are in place
   become: true
@@ -33,8 +33,8 @@
     state: directory
     owner: root
   with_items:
-    - sync-server
-    - write-provisioner
+    - trough-sync-server
+    - trough-write-provisioner
 
 - name: Install Trough
   become: true
@@ -45,38 +45,38 @@
        editable=false
        extra_args='--no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/'
 
-- name: Install sync-server supervised by daemontools in /etc/service
+- name: Install trough-sync-server supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/sync-server.log 2>&1"
+    command: "sudo -u {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/trough-sync-server.log 2>&1"
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/sync-server/run"
+    dest: "/etc/service/trough-sync-server/run"
     owner: root
     mode: 0755
 
-- name: "Start sync-server" 
+- name: "Start trough-sync-server"
   become: true
   svc:
-    name: sync-server
+    name: trough-sync-server
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/sync-server"
+    service_dir: "/etc/service/trough-sync-server"
 
-- name: Install write-provisioner supervised by daemontools in /etc/service
+- name: Install trough-write-provisioner supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/write-provisioner.log --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-write-provisioner.log --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/write-provisioner/run"
+    dest: "/etc/service/trough-write-provisioner/run"
     owner: root
     mode: 0755
 
-- name: Start write-provisioner
+- name: Start trough-write-provisioner
   become: true
   svc:
-    name: write-provisioner
+    name: trough-write-provisioner
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/write-provisioner"
+    service_dir: "/etc/service/trough-write-provisioner"
