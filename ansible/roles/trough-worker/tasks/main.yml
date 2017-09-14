@@ -61,7 +61,7 @@
 - name: Install trough-sync-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "sudo -u {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/trough-sync-local.log 2>&1"
+    command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/trough-sync-local.log 2>&1"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-sync-local/run"

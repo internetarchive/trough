@@ -48,7 +48,7 @@
 - name: Install trough-sync-server supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "sudo -u {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/trough-sync-server.log 2>&1"
+    command: "setuidgid {{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/trough-sync-server.log 2>&1"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-sync-server/run"
