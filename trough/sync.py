@@ -585,7 +585,7 @@ class LocalSyncController(SyncController):
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         for f in snakebite_client.copyToLocal(source, destination):
             if f.get('error'):
-                logging.error('Error: %s' % f['error'])
+                logging.error('Error during HDFS copy: %s' % f['error'])
                 raise Exception('Copying HDFS file %s to local destination %s produced an error: "%s"' % (source, destination, f['error']))
             logging.info('copied %s' % f)
             return True
@@ -657,11 +657,14 @@ class LocalSyncController(SyncController):
 
         healthy_ids = []
         for segment in stale_queue:
+            try:
+                self.copy_segment_from_hdfs(segment)
+            except:
+                continue
             write_lock = segment.retrieve_write_lock()
             if write_lock:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
                 self.decommission_writable_segment(segment, write_lock)
-            self.copy_segment_from_hdfs(segment)
             read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
             healthy_ids.append(read_id)
