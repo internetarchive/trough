@@ -20,7 +20,7 @@ from uhashring import HashRing
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
-        lambda svc: r.now().sub(svc["last_heartbeat"]) < svc["ttl"]
+        lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
     )
 
 def setup_connection(conn):
@@ -155,7 +155,7 @@ class Segment(object):
         return Assignment.segment_assignments(self.rethinker, self.id)
     def readable_copies_query(self):
         return self.rethinker.table('services').get_all(self.id, index="segment").filter({"role": 'trough-read'}).filter(
-                lambda svc: r.now().sub(svc["last_heartbeat"]) < svc["ttl"]
+                lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
             )
     def readable_copies(self):
         '''returns the 'up' copies of this segment to read from, per rethinkdb.'''
@@ -223,7 +223,7 @@ class HostRegistry(object):
         self.assignment_queue = AssignmentQueue(self.rethinker)
     def get_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(                                               
-                   lambda svc: r.now().sub(svc["last_heartbeat"]) < svc["ttl"]   #.default(20.0)
+                   lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
                ).order_by("load").run())
     def hosts_exist(self):
         output = bool(self.get_hosts())
