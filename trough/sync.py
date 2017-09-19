@@ -668,9 +668,10 @@ class LocalSyncController(SyncController):
             read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
             healthy_ids.append(read_id)
-            if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * round(settings['SYNC_LOOP_TIMING'] * 4)) > last_heartbeat:
+            if datetime.datetime.now() - datetime.timedelta(seconds=0.7 * round(settings['SYNC_LOOP_TIMING'] * 4)) > last_heartbeat:
                 self.heartbeat()
                 last_heartbeat = datetime.datetime.now()
+                break # start the sync loop over, allowing all segments to check in as healthy
         self.registry.bulk_heartbeat(healthy_ids)
 
 
