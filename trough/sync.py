@@ -603,7 +603,7 @@ class LocalSyncController(SyncController):
         logging.info('De-commissioning a writable segment: %s' % segment.id)
         writable_copy = segment.writable_copy()
         if writable_copy:
-            self.services.unregister(writable_copy.id)
+            self.services.unregister(writable_copy.get('id'))
         write_lock.release()
 
     def segment_name_from_path(self, path):
