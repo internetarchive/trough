@@ -91,7 +91,7 @@
 - name: "Start trough-sync-server fifo log reader"
   become: true
   svc:
-    name: log
+    name: trough-sync-server/log
     enabled: yes
     state: restarted
     service_dir: "/etc/service/trough-sync-server/log"
@@ -129,7 +129,7 @@
 - name: "Start trough-write-provisioner fifo log reader"
   become: true
   svc:
-    name: log
+    name: trough-write-provisioner/log
     enabled: yes
     state: restarted
     service_dir: "/etc/service/trough-write-provisioner/log"
