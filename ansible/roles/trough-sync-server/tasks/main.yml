@@ -110,7 +110,7 @@
 - name: Install trough-write-provisioner fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner
   become: true
   vars:
-    name: trough-read
+    name: trough-write-provisioner
     udp_dest: "{{udp_log_host}}:{{write_provisioner_server_udp_log_port}}"
   template:
     src: fifo-log-reader-skeleton.j2
