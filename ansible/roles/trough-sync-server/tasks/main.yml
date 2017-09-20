@@ -60,6 +60,8 @@
   become: true
   vars:
     command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py --server"
+    name: trough-sync-server
+    user: "{{user}}"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-sync-server/run"
@@ -99,6 +101,8 @@
   become: true
   vars:
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-write-provisioner.log --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
+    name: trough-sync-server
+    user: "{{user}}"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-write-provisioner/run"
