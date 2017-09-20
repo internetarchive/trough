@@ -47,6 +47,24 @@
     - trough-write
     - trough-read
     - trough-write-provisioner-local
+    - trough-sync-local/log
+    - trough-write/log
+    - trough-read/log
+    - trough-write-provisioner-local/log
+
+- name: Install logrotate.d rotation scripts for local trough logs
+  become: true
+  template:
+    src: fifo-log-rotator.j2
+    dest: "/etc/logrotate.d/{{item.name}}"
+    owner: root
+    mode: 0644  
+  with_items:
+    - name: trough-sync-local
+    - name: trough-write
+    - name: trough-read
+    - name: trough-write-provisioner-local
+  
 
 - name: Install Trough
   become: true
@@ -61,9 +79,24 @@
   become: true
   vars:
     command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/trough-sync-local.log 2>&1"
+    user: "{{user}}"
+    name: trough-sync-local
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-sync-local/run"
+    owner: root
+    mode: 0755
+
+- name: Install trough-sync-local fifo log reader supervised by daemontools in /etc/service/trough-sync-local
+  become: true
+  vars:
+    venv_root: "{{venv_root}}"
+    user: "{{user}}"
+    name: trough-sync-local
+    udp_dest: "{{udp_log_host}}:{{sync_udp_log_port}}"
+  template:
+    src: fifo-log-reader-skeleton.j2
+    dest: "/etc/service/trough-sync-local/log/run"
     owner: root
     mode: 0755
 
@@ -75,13 +108,36 @@
     state: restarted
     service_dir: "/etc/service/trough-sync-local"
 
+- name: "Start trough-sync-local fifo log reader"
+  become: true
+  svc:
+    name: trough-sync-local
+    enabled: yes
+    state: restarted
+    service_dir: "/etc/service/trough-sync-local/log"
+
 - name: Install trough-write supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-write.log --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
+    user: "{{user}}"
+    name: trough-write
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-write/run"
+    owner: root
+    mode: 0755
+
+- name: Install trough-write fifo log reader supervised by daemontools in /etc/service/trough-write
+  become: true
+  vars:
+    venv_root: "{{venv_root}}"
+    user: "{{user}}"
+    name: trough-write
+    udp_dest: "{{udp_log_host}}:{{write_udp_log_port}}"
+  template:
+    src: fifo-log-reader-skeleton.j2
+    dest: "/etc/service/trough-write/log/run"
     owner: root
     mode: 0755
 
@@ -93,16 +149,38 @@
     state: restarted
     service_dir: "/etc/service/trough-write"
 
+- name: "Start trough-write fifo log reader"
+  become: true
+  svc:
+    name: trough-write-logger
+    enabled: yes
+    state: restarted
+    service_dir: "/etc/service/trough-write/log"
+
 - name: Install trough-read supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-read.log --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
+    user: "{{user}}"
+    name: trough-read
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-read/run"
     owner: root
     mode: 0755
 
+- name: Install trough-read fifo log reader supervised by daemontools in /etc/service/trough-read
+  become: true
+  vars:
+    venv_root: "{{venv_root}}"
+    user: "{{user}}"
+    name: trough-read
+    udp_dest: "{{udp_log_host}}:{{read_udp_log_port}}"
+  template:
+    src: fifo-log-reader-skeleton.j2
+    dest: "/etc/service/trough-read/log/run"
+    owner: root
+    mode: 0755
 
 - name: Start trough-read
   become: true
@@ -112,15 +190,38 @@
     state: restarted
     service_dir: "/etc/service/trough-read"
 
+- name: "Start trough-read fifo log reader"
+  become: true
+  svc:
+    name: trough-read-logger
+    enabled: yes
+    state: restarted
+    service_dir: "/etc/service/trough-read/log"
+
 - name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --logto2=/var/log/trough-write-provisioner-local.log --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_local.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_local.py"
+    user: "{{user}}"
+    name: trough-write-provisioner-local
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-write-provisioner-local/run"
     owner: root
     mode: 0744
+
+- name: Install trough-write-provisioner-local fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner-local
+  become: true
+  vars:
+    venv_root: "{{venv_root}}"
+    user: "{{user}}"
+    name: trough-read
+    udp_dest: "{{udp_log_host}}:{{write_provisioner_local_udp_log_port}}"
+  template:
+    src: fifo-log-reader-skeleton.j2
+    dest: "/etc/service/trough-write-provisioner-local/log/run"
+    owner: root
+    mode: 0755
 
 - name: Start trough-write-provisioner-local
   become: true
@@ -129,3 +230,11 @@
     enabled: yes
     state: restarted
     service_dir: "/etc/service/trough-write-provisioner-local"
+
+- name: "Start trough-write-provisioner-local fifo log reader"
+  become: true
+  svc:
+    name: trough-write-provisioner-local-logger
+    enabled: yes
+    state: restarted
+    service_dir: "/etc/service/trough-write-provisioner-local/log"

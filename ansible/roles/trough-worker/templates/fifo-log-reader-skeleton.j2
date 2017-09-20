@@ -1,0 +1,12 @@
+#!/bin/bash
+# trough ansible managed
+
+user={{user}}
+fifo=/tmp/{{name}}-fifo
+log=/var/log/{{name}}.log
+
+test -e $fifo || setuidgid $user mkfifo $fifo
+touch $log
+chown $user $log
+
+exec setuidgid $user nice {{venv_root}}/bin/udptee.py {{udp_dest}} >> $log < $fifo

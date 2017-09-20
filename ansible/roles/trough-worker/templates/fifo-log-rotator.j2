@@ -1,0 +1,9 @@
+# trough ansible managed
+
+/var/log/{{name}}.log {
+    rotate 10
+    size 5G
+    postrotate
+        svc -t /etc/service/{{name}}/log
+    endscript
+}
