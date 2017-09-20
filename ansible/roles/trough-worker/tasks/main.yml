@@ -64,7 +64,6 @@
     - name: trough-write
     - name: trough-read
     - name: trough-write-provisioner-local
-  
 
 - name: Install Trough
   become: true
@@ -78,7 +77,7 @@
 - name: Install trough-sync-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py >> /var/log/trough-sync-local.log 2>&1"
+    command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py"
     user: "{{user}}"
     name: trough-sync-local
   template:
