@@ -70,7 +70,6 @@
 - name: Install trough-sync-server fifo log reader supervised by daemontools in /etc/service/trough-sync-server
   become: true
   vars:
-    venv_root: "{{venv_root}}"
     name: trough-sync-server
     udp_dest: "{{udp_log_host}}:{{sync_server_udp_log_port}}"
   template:
@@ -109,7 +108,6 @@
 - name: Install trough-write-provisioner fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner
   become: true
   vars:
-    venv_root: "{{venv_root}}"
     name: trough-read
     udp_dest: "{{udp_log_host}}:{{write_provisioner_udp_log_port}}"
   template:
