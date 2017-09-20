@@ -36,6 +36,17 @@
     - trough-sync-server
     - trough-write-provisioner
 
+- name: Install logrotate.d rotation scripts for local trough logs
+  become: true
+  template:
+    src: fifo-log-rotator.j2
+    dest: "/etc/logrotate.d/{{item.name}}"
+    owner: root
+    mode: 0644  
+  with_items:
+    - name: trough-sync-server
+    - name: trough-write-provisioner
+
 - name: Install Trough
   become: true
   become_user: "{{user}}"
@@ -48,10 +59,23 @@
 - name: Install trough-sync-server supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py --server >> /var/log/trough-sync-server.log 2>&1"
+    command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py --server"
   template:
     src: service-skeleton.j2
     dest: "/etc/service/trough-sync-server/run"
+    owner: root
+    mode: 0755
+
+- name: Install trough-sync-server fifo log reader supervised by daemontools in /etc/service/trough-sync-server
+  become: true
+  vars:
+    venv_root: "{{venv_root}}"
+    user: "{{user}}"
+    name: trough-sync-server
+    udp_dest: "{{udp_log_host}}:{{sync_udp_log_port}}"
+  template:
+    src: fifo-log-reader-skeleton.j2
+    dest: "/etc/service/trough-sync-server/log/run"
     owner: root
     mode: 0755
 
@@ -63,6 +87,14 @@
     state: restarted
     service_dir: "/etc/service/trough-sync-server"
 
+- name: "Start trough-sync-server fifo log reader"
+  become: true
+  svc:
+    name: trough-sync-server
+    enabled: yes
+    state: restarted
+    service_dir: "/etc/service/trough-sync-server/log"
+
 - name: Install trough-write-provisioner supervised by daemontools in /etc/service
   become: true
   vars:
@@ -73,6 +105,19 @@
     owner: root
     mode: 0755
 
+- name: Install trough-write-provisioner fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner
+  become: true
+  vars:
+    venv_root: "{{venv_root}}"
+    user: "{{user}}"
+    name: trough-read
+    udp_dest: "{{udp_log_host}}:{{write_provisioner_udp_log_port}}"
+  template:
+    src: fifo-log-reader-skeleton.j2
+    dest: "/etc/service/trough-write-provisioner/log/run"
+    owner: root
+    mode: 0755
+
 - name: Start trough-write-provisioner
   become: true
   svc:
@@ -80,3 +125,11 @@
     enabled: yes
     state: restarted
     service_dir: "/etc/service/trough-write-provisioner"
+
+- name: "Start trough-write-provisioner fifo log reader"
+  become: true
+  svc:
+    name: trough-write-provisioner-logger
+    enabled: yes
+    state: restarted
+    service_dir: "/etc/service/trough-write-provisioner/log"
