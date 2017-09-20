@@ -34,7 +34,9 @@
     owner: root
   with_items:
     - trough-sync-server
+    - trough-sync-server/log
     - trough-write-provisioner
+    - trough-write-provisioner/log
 
 - name: Install logrotate.d rotation scripts for local trough logs
   become: true
