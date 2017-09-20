@@ -111,7 +111,7 @@
   become: true
   vars:
     name: trough-read
-    udp_dest: "{{udp_log_host}}:{{write_provisioner_udp_log_port}}"
+    udp_dest: "{{udp_log_host}}:{{write_provisioner_server_udp_log_port}}"
   template:
     src: fifo-log-reader-skeleton.j2
     dest: "/etc/service/trough-write-provisioner/log/run"
