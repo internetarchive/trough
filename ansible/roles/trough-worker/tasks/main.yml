@@ -78,7 +78,6 @@
   become: true
   vars:
     command: "setuidgid {{ user }} {{ venv_root }}/trough-ve3/bin/sync.py"
-    user: "{{user}}"
     name: trough-sync-local
   template:
     src: service-skeleton.j2
@@ -90,7 +89,6 @@
   become: true
   vars:
     venv_root: "{{venv_root}}"
-    user: "{{user}}"
     name: trough-sync-local
     udp_dest: "{{udp_log_host}}:{{sync_udp_log_port}}"
   template:
@@ -119,7 +117,6 @@
   become: true
   vars:
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
-    user: "{{user}}"
     name: trough-write
   template:
     src: service-skeleton.j2
@@ -131,7 +128,6 @@
   become: true
   vars:
     venv_root: "{{venv_root}}"
-    user: "{{user}}"
     name: trough-write
     udp_dest: "{{udp_log_host}}:{{write_udp_log_port}}"
   template:
@@ -160,7 +156,6 @@
   become: true
   vars:
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
-    user: "{{user}}"
     name: trough-read
   template:
     src: service-skeleton.j2
@@ -172,7 +167,6 @@
   become: true
   vars:
     venv_root: "{{venv_root}}"
-    user: "{{user}}"
     name: trough-read
     udp_dest: "{{udp_log_host}}:{{read_udp_log_port}}"
   template:
@@ -201,7 +195,6 @@
   become: true
   vars:
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_local.py"
-    user: "{{user}}"
     name: trough-write-provisioner-local
   template:
     src: service-skeleton.j2
@@ -213,7 +206,6 @@
   become: true
   vars:
     venv_root: "{{venv_root}}"
-    user: "{{user}}"
     name: trough-read
     udp_dest: "{{udp_log_host}}:{{write_provisioner_local_udp_log_port}}"
   template:
