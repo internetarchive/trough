@@ -77,7 +77,7 @@ class TestReadServer(unittest.TestCase):
         def post(*args, **kwargs):
             response = mock.Mock()
             response.headers = {"Content-Type": "application/json"}
-            response.iter_content = lambda: ("test", "output")
+            response.iter_content = lambda: (b"test", b"output")
             return response
         requests.post = post
         consul = mock.Mock()
