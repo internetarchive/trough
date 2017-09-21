@@ -202,7 +202,7 @@
 - name: Install trough-write-provisioner-local fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner-local
   become: true
   vars:
-    name: trough-read
+    name: trough-write-provisioner-local
     udp_dest: "{{udp_log_host}}:{{write_provisioner_local_udp_log_port}}"
   template:
     src: fifo-log-reader-skeleton.j2
