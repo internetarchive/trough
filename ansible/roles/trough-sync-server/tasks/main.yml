@@ -91,10 +91,10 @@
 - name: "Start trough-sync-server fifo log reader"
   become: true
   svc:
-    name: trough-sync-server/log
+    name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-sync-server/log"
+    service_dir: "/etc/service/trough-sync-server/"
 
 - name: Install trough-write-provisioner supervised by daemontools in /etc/service
   become: true
@@ -129,7 +129,7 @@
 - name: "Start trough-write-provisioner fifo log reader"
   become: true
   svc:
-    name: trough-write-provisioner/log
+    name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write-provisioner/log"
+    service_dir: "/etc/service/trough-write-provisioner"

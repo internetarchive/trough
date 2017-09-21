@@ -107,10 +107,10 @@
 - name: "Start trough-sync-local fifo log reader"
   become: true
   svc:
-    name: trough-sync-local
+    name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-sync-local/log"
+    service_dir: "/etc/service/trough-sync-local"
 
 - name: Install trough-write supervised by daemontools in /etc/service
   become: true
@@ -145,10 +145,10 @@
 - name: "Start trough-write fifo log reader"
   become: true
   svc:
-    name: trough-write-logger
+    name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write/log"
+    service_dir: "/etc/service/trough-write"
 
 - name: Install trough-read supervised by daemontools in /etc/service
   become: true
@@ -183,10 +183,10 @@
 - name: "Start trough-read fifo log reader"
   become: true
   svc:
-    name: trough-read-logger
+    name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-read/log"
+    service_dir: "/etc/service/trough-read"
 
 - name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
   become: true
@@ -221,7 +221,7 @@
 - name: "Start trough-write-provisioner-local fifo log reader"
   become: true
   svc:
-    name: trough-write-provisioner-local-logger
+    name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write-provisioner-local/log"
+    service_dir: "/etc/service/trough-write-provisioner-local"
