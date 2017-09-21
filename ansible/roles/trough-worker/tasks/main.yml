@@ -90,7 +90,7 @@
   become: true
   vars:
     name: trough-sync-local
-    udp_dest: "{{udp_log_host}}:{{sync_udp_log_port}}"
+    udp_dest: "{{udp_log_host}}:{{sync_local_udp_log_port}}"
   template:
     src: fifo-log-reader-skeleton.j2
     dest: "/etc/service/trough-sync-local/log/run"
