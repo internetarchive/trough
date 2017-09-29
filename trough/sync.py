@@ -524,15 +524,15 @@ class MasterSyncController(SyncController):
         #     - look up the set of readable copies of the segment
         #     - if readable copies exist choose the one with the lowest load, and return it. else:
         #         - look up the current set of nodes, choose the one with the lowest load and return it
-        assignment = self.rethinker.table('lock')
-            .get('write:lock:%s' % segment_id)
-            .default(self.rethinker.table('services')
-                .getAll(segment_id, {index:'segment'})
-                .filter({'role': 'trough-read'})
-                .orderBy('load')(0).default(
-                    self.rethinker.table('services')
-                        .getAll('trough-nodes', {'index': 'role'})
-                        .orderBy('load')(0)
+        assignment = self.rethinker.table('lock')\
+            .get('write:lock:%s' % segment_id)\
+            .default(self.rethinker.table('services')\
+                .get_all(segment_id, index='segment')\
+                .filter(role='trough-read')\
+                .order_by('load')[0].default(
+                    self.rethinker.table('services')\
+                        .get_all('trough-nodes', index='role')\
+                        .order_by('load')[0]
                 )
             )
         # finally, if we have not retrieved a write lock, we need to talk to the local node.
