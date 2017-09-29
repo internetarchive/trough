@@ -518,28 +518,28 @@ class MasterSyncController(SyncController):
         self.assign_segments()
 
     def provision_writable_segment(self, segment_id):
-        # if this node is not the elected master, raise an exception
-        master = self.services.unique_service('trough-sync-master')
-        if master['node'] != self.hostname:
-            raise Exception('This node is not the sync master (currently %s) and cannot provision writable segments' % master['node'])
-        segment = Segment(segment_id=segment_id,
-            rethinker=self.rethinker,
-            services=self.services,
-            registry=self.registry, size=0)
-        assigned_host = segment.retrieve_write_lock()
-        readable_copies = [copy for copy in segment.readable_copies()]
-        # if the requested segment has no writable copies:
-        if not assigned_host:
-            all_hosts = self.registry.get_hosts()
-            assigned_host = random.choice(readable_copies) if readable_copies else random.choice(all_hosts)
-        if not readable_copies:
-            self.registry.assign(assigned_host['node'], segment, remote_path=None)
-        # make request to node to complete the local sync
-        post_url = 'http://%s:%s/' % (assigned_host['node'], self.sync_port)
-        requests.post(post_url, segment_id)
-        # explicitly release provisioning lock
-        # return an http endpoint for POSTs
-        return "http://%s:%s/?segment=%s" % (assigned_host['node'], self.write_port, segment_id)
+        # the query below implements this algorithm:
+        # - look up a write lock for the passed-in segment
+        # - if the write lock exists, return it. else:
+        #     - look up the set of readable copies of the segment
+        #     - if readable copies exist choose the one with the lowest load, and return it. else:
+        #         - look up the current set of nodes, choose the one with the lowest load and return it
+        assignment = self.rethinker.table('lock')
+            .get('write:lock:%s' % segment_id)
+            .default(self.rethinker.table('services')
+                .getAll(segment_id, {index:'segment'})
+                .filter({'role': 'trough-read'})
+                .orderBy('load')(0).default(
+                    self.rethinker.table('services')
+                        .getAll('trough-nodes', {'index': 'role'})
+                        .orderBy('load')(0)
+                )
+            )
+        # finally, if we have not retrieved a write lock, we need to talk to the local node.
+        if not assignment['id'].startswith('write:lock'):
+            post_url = 'http://%s:%s/' % (assignment['node'], self.sync_port)
+            requests.post(post_url, segment_id)
+        return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
 
 # Local mode synchronizer.
 class LocalSyncController(SyncController):
@@ -682,11 +682,12 @@ class LocalSyncController(SyncController):
             services=self.services,
             registry=self.registry,
             size=0)
-        # get the current write lock if any
+        # get the current write lock if any # TODO: collapse the below into one query
         lock_data = segment.retrieve_write_lock()
         if not lock_data:
             lock_data = segment.acquire_write_lock()
 
+        # TODO: spawn a thread for these?
         self.registry.heartbeat(pool='trough-write',
             segment=segment_id,
             node=self.hostname,
