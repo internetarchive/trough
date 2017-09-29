@@ -401,6 +401,9 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(len(assignments), 1)
         self.assertEqual(assignments[0]['bytes'], 1024 * 1000)
         self.assertEqual(assignments[0]['hash_ring'], 0)
+    def test_provision_writable_segment(self):
+        # TODO: write a test
+        assert 0 == 1
     def test_sync(self):
         pass
 
