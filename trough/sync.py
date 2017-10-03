@@ -526,17 +526,18 @@ class MasterSyncController(SyncController):
         #         - look up the current set of nodes, choose the one with the lowest load and return it
         assignment = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
-            .default(self.rethinker.table('services')\
+            .default(r.table('services')\
                 .get_all(segment_id, index='segment')\
-                .filter(role='trough-read')\
+                .filter({'role':'trough-read'})\
+                .filter(lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"]))\
                 .order_by('load')[0].default(
-                    self.rethinker.table('services')\
+                    r.table('services')\
                         .get_all('trough-nodes', index='role')\
-                        .order_by('load')[0]
+                        .order_by('load')[0].default({ })
                 )
-            )
+            ).run()
         # finally, if we have not retrieved a write lock, we need to talk to the local node.
-        if not assignment['id'].startswith('write:lock'):
+        if not assignment.get('id', '').startswith('write:lock'):
             post_url = 'http://%s:%s/' % (assignment['node'], self.sync_port)
             requests.post(post_url, segment_id)
         return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
