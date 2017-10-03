@@ -684,11 +684,14 @@ class LocalSyncController(SyncController):
             registry=self.registry,
             size=0)
         # get the current write lock if any # TODO: collapse the below into one query
+        logging.info('retrieving write lock for segment %r', segment_id')
         lock_data = segment.retrieve_write_lock()
         if not lock_data:
+            logging.info('acquiring write lock for segment %r', segment_id')
             lock_data = segment.acquire_write_lock()
 
         # TODO: spawn a thread for these?
+        logging.info('heartbeating write service for segment %r', segment_id')
         self.registry.heartbeat(pool='trough-write',
             segment=segment_id,
             node=self.hostname,
@@ -696,6 +699,7 @@ class LocalSyncController(SyncController):
             url='http://%s:%s/?segment=%s' % (self.hostname, self.write_port, segment_id),
             ttl=round(self.sync_loop_timing * 4))
 
+        logging.info('heartbeating read service for segment %r', segment_id)
         self.registry.heartbeat(pool='trough-read',
             segment=segment_id,
             node=self.hostname,
@@ -706,7 +710,9 @@ class LocalSyncController(SyncController):
         # check that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
+            logging.info('provisioning local segment %r', segment_id)
             segment.provision_local_segment()
+        logging.info('finished provisioning writable segment %r', segment_id)
 
     def sync(self):
         '''
