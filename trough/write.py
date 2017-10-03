@@ -10,6 +10,12 @@ import urllib
 import doublethink
 
 class WriteServer:
+    def __init__(self):
+        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.services = doublethink.ServiceRegistry(self.rethinker)
+        self.registry = trough.sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        trough.sync.init(self.rethinker)
+
     def write(self, segment, query):
         logging.info('Servicing request: segment=%r query=%r', segment, query)
         # if one or more of the query(s) are not a write query, raise an exception.
@@ -39,12 +45,8 @@ class WriteServer:
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
             segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split("."))[0]
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
-            rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
-            services = doublethink.ServiceRegistry(rethinker)
-            registry = trough.sync.HostRegistry(rethinker=rethinker, services=services)
-            segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=rethinker, services=services, registry=registry)
+            segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=self.rethinker, services=self.services, registry=self.registry)
             query = env.get('wsgi.input').read()
-            trough.sync.ensure_tables(rethinker)
             write_lock = segment.retrieve_write_lock()
             if not write_lock or write_lock['node'] != settings['HOSTNAME']:
                 raise Exception("This node (settings['HOSTNAME']={!r}) cannot write to segment {!r}. There is no write lock set, or the write lock authorizes another node. Write lock: {!r}".format(settings['HOSTNAME'], segment.id, write_lock))

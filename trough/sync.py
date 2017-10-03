@@ -128,7 +128,7 @@ class Lock(doublethink.Document):
     def host_locks(cls, rr, host):
         return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="node").run())
 
-def ensure_tables(rethinker):
+def init(rethinker):
     Assignment.table_ensure(rethinker)
     Lock.table_ensure(rethinker)
     try:
@@ -139,6 +139,9 @@ def ensure_tables(rethinker):
     except Exception as e:
         pass
 
+    snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    for d in snakebite_client.mkdir([settings['HDFS_PATH']], create_parent=True):
+        logging.info('created hdfs dir %r', d)
 
 class Segment(object):
     def __init__(self, segment_id, size, rethinker, services, registry, remote_path=None):
@@ -222,7 +225,7 @@ class HostRegistry(object):
         self.services = services
         self.assignment_queue = AssignmentQueue(self.rethinker)
     def get_hosts(self):
-        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(                                               
+        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
                ).order_by("load").run())
     def hosts_exist(self):
@@ -745,7 +748,7 @@ def get_controller(server_mode):
     rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
     services = doublethink.ServiceRegistry(rethinker)
     registry = HostRegistry(rethinker=rethinker, services=services)
-    ensure_tables(rethinker)
+    init(rethinker)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
 
     if server_mode:
