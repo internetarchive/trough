@@ -324,7 +324,8 @@ class SyncController:
         self.hdfs_port = settings['HDFS_PORT']
 
         self.election_cycle = settings['ELECTION_CYCLE']
-        self.sync_port = settings['SYNC_PORT']
+        self.sync_server_port = settings['SYNC_SERVER_PORT']
+        self.sync_local_port = settings['SYNC_LOCAL_PORT']
         self.read_port = settings['READ_PORT']
         self.write_port = settings['WRITE_PORT']
         self.sync_loop_timing = settings['SYNC_LOOP_TIMING']
@@ -357,18 +358,18 @@ class MasterSyncController(SyncController):
             assert settings['ELECTION_CYCLE'] > 0, "ELECTION_CYCLE must be greater than zero. It governs the number of seconds in a sync master election period."
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
-            assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
+            assert settings['SYNC_SERVER_PORT'], "SYNC_SERVER_PORT must be set. We need to know the output port."
             assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
     def hold_election(self):
         logging.info('Holding Sync Master Election...')
-        candidate = { 
+        candidate = {
             "id": "trough-sync-master",
             "node": self.hostname,
-            "port": self.sync_port,
-            "url": "http://%s:%s/" % (self.hostname, self.sync_port),
+            "port": self.sync_server_port,
+            "url": "http://%s:%s/" % (self.hostname, self.sync_server_port),
             "ttl": self.election_cycle + self.sync_loop_timing * 4,
         }
         sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)

@@ -42,7 +42,7 @@
   become_user: root
   become: true
   vars:
-    begin_port: "{{ sync_port }}"
+    begin_port: "{{ sync_server_port }}"
     end_port: "{{ read_port }}"
   template:
     src: templates/open-ports.ferm.j2

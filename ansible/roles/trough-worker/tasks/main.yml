@@ -192,7 +192,7 @@
 - name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_local.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_local_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_local.py"
     name: trough-write-provisioner-local
   template:
     src: service-skeleton.j2
