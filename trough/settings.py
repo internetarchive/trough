@@ -38,9 +38,9 @@ settings = {
     'WRITE_THREADS': '5',
     'ELECTION_CYCLE': 10, # how frequently should I hold an election for sync master server? In seconds
     # 'ROLE': 'READ', # READ, WRITE, SYNCHRONIZE, CONSUL # commented: might not need this, handle via ansible/docker?
-    'HDFS_PATH': None, # /ait/prod/trough/
-    'HDFS_HOST': None,
-    'HDFS_PORT': None,
+    'HDFS_PATH': '/tmp/trough', # /ait/prod/trough/
+    'HDFS_HOST': 'localhost',
+    'HDFS_PORT': 8020,
     'READ_PORT': 6444,
     'WRITE_PORT': 6222,
     'SYNC_PORT': 6111,
