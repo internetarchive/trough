@@ -1,3 +1,5 @@
+group: deprecated-2017Q2
+
 language: python
 python:
 - 2.7
@@ -26,4 +28,4 @@ install:
 script:
 - python -m unittest discover
 notifications:
-    slack: internetarchive:PLZQTqR7RpyGNr1jb1TgMqhK
+  slack: internetarchive:PLZQTqR7RpyGNr1jb1TgMqhK
