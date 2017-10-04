@@ -540,7 +540,7 @@ class MasterSyncController(SyncController):
         if not assignment.get('id', '').startswith('write:lock'):
             post_url = 'http://%s:%s/' % (assignment['node'], self.sync_port)
             response = requests.post(post_url, segment_id)
-            if response.code != 200:
+            if response.status_code != 200:
                 raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
         return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
 
