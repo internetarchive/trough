@@ -542,7 +542,7 @@ class MasterSyncController(SyncController):
             ).run()
         # finally, if we have not retrieved a write lock, we need to talk to the local node.
         if not assignment.get('id', '').startswith('write:lock'):
-            post_url = 'http://%s:%s/' % (assignment['node'], self.sync_port)
+            post_url = 'http://%s:%s/' % (assignment['node'], self.sync_local_port)
             requests.post(post_url, segment_id)
         return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
 

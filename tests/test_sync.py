@@ -12,7 +12,7 @@ import threading
 import datetime
 import time
 import doublethink
-import rethinkdb as r 
+import rethinkdb as r
 
 import random
 import string
@@ -24,7 +24,7 @@ class TestSegment(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -158,7 +158,7 @@ class TestHostRegistry(unittest.TestCase):
     def setUp(self):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -296,7 +296,7 @@ class TestMasterSyncController(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.snakebite_client = mock.Mock()
         self.rethinker.table("services").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -436,13 +436,13 @@ class TestMasterSyncController(unittest.TestCase):
         # check behavior when readable copy exists
         self.rethinker.table('lock').get('write:lock:testsegment').delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[0], 'http://example2:6111/')
+        self.assertEqual(u[0], 'http://example2:6112/')
         self.assertEqual(d[0], 'testsegment')
         self.assertEqual(output, 'http://example2:6222/?segment=testsegment')
         # check behavior when only pool of nodes exists
         self.rethinker.table('services').get( "trough-read:example2:testsegment").delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[1], 'http://example3:6111/')
+        self.assertEqual(u[1], 'http://example3:6112/')
         self.assertEqual(d[1], 'testsegment')
         self.assertEqual(output, 'http://example3:6222/?segment=testsegment')
         self.rethinker.table('services').delete().run()
