@@ -34,11 +34,11 @@ RUN apt-get install -y openjdk-8-jdk hadoop-conf-pseudo
 
 RUN su hdfs -c 'hdfs namenode -format'
 
-EXPOSE 8020 50070 50010 50020 50075
+RUN mv -v /etc/hadoop/conf/core-site.xml /etc/hadoop/conf/core-site.xml.orig \
+    && cat /etc/hadoop/conf/core-site.xml.orig | sed 's,localhost:8020,0.0.0.0:8020,' > /etc/hadoop/conf/core-site.xml
 
 RUN mv -v /etc/hadoop/conf/hdfs-site.xml /etc/hadoop/conf/hdfs-site.xml.orig \
     && cat /etc/hadoop/conf/hdfs-site.xml.orig | sed 's,^</configuration>$,  <property>\n    <name>dfs.permissions.enabled</name>\n    <value>false</value>\n  </property>\n</configuration>,' > /etc/hadoop/conf/hdfs-site.xml
 
 RUN echo '#!/bin/bash\nservice hadoop-hdfs-namenode start\nservice hadoop-hdfs-datanode start' > /etc/my_init.d/50_start_hdfs.sh \
     && chmod a+x /etc/my_init.d/50_start_hdfs.sh
-
