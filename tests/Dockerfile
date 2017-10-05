@@ -10,7 +10,7 @@ RUN apt-get update && apt-get --auto-remove -y dist-upgrade
 
 # Add the RethinkDB repository and public key
 # "RethinkDB Packaging <packaging@rethinkdb.com>" http://download.rethinkdb.com/apt/pubkey.gpg
-RUN apt-key adv --keyserver pgp.mit.edu --recv-keys 1614552E5765227AEC39EFCFA7E00EF33A8F2399 \
+RUN curl -s https://download.rethinkdb.com/apt/pubkey.gpg | apt-key add - \
     && . /etc/lsb-release \
     && echo "deb http://download.rethinkdb.com/apt $DISTRIB_CODENAME main" \
        > /etc/apt/sources.list.d/rethinkdb.list \
