@@ -406,9 +406,17 @@ class TestMasterSyncController(unittest.TestCase):
     def test_provision_writable_segment(self, requests):
         u = []
         d = []
+        class Response(object):
+            def __init__(self, code):
+                self.status_code = code
+            text = "Test"
         def p(url, data):
             u.append(url)
             d.append(data)
+            if url == 'http://example4:6111/':
+                return Response(500)
+            else:
+                return Response(200)
         requests.post = p
         # check behavior when lock exists
         self.rethinker.table('services').insert({
@@ -446,6 +454,17 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(d[1], 'testsegment')
         self.assertEqual(output, 'http://example3:6222/?segment=testsegment')
         self.rethinker.table('services').delete().run()
+        self.rethinker.table('services').insert({
+            'role': "trough-nodes",
+            'node': "example4",
+            'segment': "testsegment",
+            'ttl': 999,
+            'last_heartbeat': r.now(),
+        }).run()
+        with self.assertRaises(Exception):
+            output = controller.provision_writable_segment('testsegment')
+        self.assertEqual(u[2], 'http://example4:6111/')
+        self.assertEqual(d[2], 'testsegment')
         # check behavior when no nodes in pool?
     def test_sync(self):
         pass
