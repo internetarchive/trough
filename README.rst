@@ -1,5 +1,5 @@
-.. image:: https://travis-ci.org/jkafader/trough.svg?branch=master
-    :target: https://travis-ci.org/jkafader/trough
+.. image:: https://travis-ci.org/internetarchive/trough.svg?branch=master
+    :target: https://travis-ci.org/internetarchive/trough
 
 =======
 Trough
