@@ -73,5 +73,6 @@ class ReadServer:
                 return self.proxy_for_write_host(write_lock['node'], segment, query)
             return self.read(segment, query)
         except BaseException as e:
+            logging.error('500 Server Error due to exception', exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]
