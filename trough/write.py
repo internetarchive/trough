@@ -53,6 +53,6 @@ class WriteServer:
             start_response('200 OK', [('Content-Type', 'text/plain')])
             return output
         except Exception as e:
-            logging.error('segment=%r query=%r', segment, query, exc_info=True)
+            logging.error('500 Server Error due to exception (segment=%r query=%r)', segment, query, exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]
