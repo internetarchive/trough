@@ -302,7 +302,7 @@ class TestMasterSyncController(unittest.TestCase):
         def p(url, data):
             u.append(url)
             d.append(data)
-            if url == 'http://example4:6111/':
+            if url == 'http://example4:6112/':
                 return Response(500)
             else:
                 return Response(200)
@@ -350,9 +350,9 @@ class TestMasterSyncController(unittest.TestCase):
             'ttl': 999,
             'last_heartbeat': r.now(),
         }).run()
-        with self.assertRaises(Exception):
+        with self.assertRaisesRegex(Exception, 'Received response from local write provisioner: 500'):
             output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[2], 'http://example4:6111/')
+        self.assertEqual(u[2], 'http://example4:6112/')
         self.assertEqual(d[2], 'testsegment')
         # check behavior when no nodes in pool?
     def test_sync(self):
