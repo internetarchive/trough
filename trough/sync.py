@@ -222,49 +222,14 @@ class HostRegistry(object):
         self.services = services
         self.assignment_queue = AssignmentQueue(self.rethinker)
     def get_hosts(self):
-        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(                                               
+        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
                ).order_by("load").run())
-    def hosts_exist(self):
-        output = bool(self.get_hosts())
-        logging.debug("Looking for hosts. Found: %s" % output)
-        return output
     def total_bytes_for_node(self, node):
         for service in self.services.available_services('trough-nodes'):
             if service['node'] == node:
                 return service.get('available_bytes')
         raise Exception('Could not find node "%s"' % node)
-    def host_load(self):
-        logging.info('Beginning Host Load Calculation...')
-        output = []
-        for host in self.get_hosts():
-            logging.info('Working on host %s' % host)
-            assigned_bytes = sum([assignment.bytes for assignment in Assignment.host_assignments(self.rethinker, host['node'])])
-            logging.info('Found %s bytes assigned to host %s' % (assigned_bytes, host))
-            total_bytes = self.total_bytes_for_node(host['node'])
-            logging.info('Total bytes for node: %s' % total_bytes)
-            total_bytes = 0 if total_bytes in ['null', None] else int(total_bytes)
-            output.append({
-                'node': host['node'],
-                'remaining_bytes': total_bytes - assigned_bytes,
-                'assigned_bytes': assigned_bytes,
-                'total_bytes': total_bytes,
-                'load_ratio': assigned_bytes / total_bytes,
-            })
-        return output
-    def min_acceptable_load_ratio(self, hosts, largest_segment_size):
-        ''' the minimum acceptable ratio is the average load ratio minus the accepable load deviation.
-        the acceptable load deviation is 1.5 * (the ratio of (largest segment : the average byte load of the nodes))'''
-        # if there are no segments, (the size of the largest one is zero, don't move any segments)
-        if largest_segment_size == 0:
-            return 0
-        segment_size_sum = 0
-        average_load_ratio = sum([host['load_ratio'] for host in hosts]) / len(hosts)
-        average_byte_load = sum([host['assigned_bytes'] for host in hosts]) / len(hosts)
-        average_capacity = sum([host['total_bytes'] for host in hosts]) / len(hosts)
-        acceptable_load_deviation = min((largest_segment_size / average_capacity), average_load_ratio)
-        min_acceptable_load = average_load_ratio - acceptable_load_deviation
-        return min_acceptable_load
     def heartbeat(self, pool=None, node=None, ttl=None, **doc):
         if None in [pool, node, ttl]:
             raise Exception('"pool", "node" and "ttl" are required arguments.')
@@ -313,7 +278,6 @@ class SyncController:
         self.services = services
         self.registry = registry
         self.leader = False
-        self.found_hosts = False
 
         self.hostname = settings['HOSTNAME']
         self.external_ip = settings['EXTERNAL_IP']
@@ -349,6 +313,11 @@ class SyncController:
 
 # Master or "Server" mode synchronizer.
 class MasterSyncController(SyncController):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_master = {}
+        self.current_host_nodes = []
+
     def check_config(self):
         try:
             assert settings['HDFS_PATH'], "HDFS_PATH must be set, otherwise I don't know where to look for sqlite files."
@@ -364,7 +333,7 @@ class MasterSyncController(SyncController):
 
     def hold_election(self):
         logging.info('Holding Sync Master Election...')
-        candidate = { 
+        candidate = {
             "id": "trough-sync-master",
             "node": self.hostname,
             "port": self.sync_port,
@@ -373,28 +342,19 @@ class MasterSyncController(SyncController):
         }
         sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)
         if sync_master.get('node') == self.hostname:
-            # 'touch' the ttl check for sync master
-            logging.info('Still the master. I will check again in %ss' % self.election_cycle)
+            if self.current_master.get('node') != sync_master.get('node'):
+                logging.info('I am the new master! url=%r ttl=%r', sync_master.get('url'), sync_master.get('ttl'))
+            else:
+                logging.debug('I am still the master. url=%r ttl=%r', sync_master.get('url'), sync_master.get('ttl'))
+            self.current_master = sync_master
             return True
-        logging.info('I am not the master. I will check again in %ss' % self.election_cycle)
-        return False
-
-    def wait_to_become_leader(self):
-        # hold an election every self.election_cycle seconds
-        self.leader = self.hold_election()
-        while not self.leader:
-            self.leader = self.hold_election()
-            if not self.leader:
-                time.sleep(self.election_cycle)
-
-    def wait_for_hosts(self):
-        while not self.found_hosts:
-            logging.info('Waiting for hosts to join cluster. Sleep period: %ss' % self.host_check_wait_period)
-            self.found_hosts = self.registry.hosts_exist()
-            time.sleep(self.host_check_wait_period)
+        else:
+            logging.debug('I am not the master. The master is %r', sync_master.get('url'))
+            self.current_master = sync_master
+            return False
 
     def assign_segments(self):
-        logging.info('Assigning and balancing segments...')
+        logging.debug('Assigning and balancing segments...')
         max_copies = settings['MAXIMUM_ASSIGNMENTS']
         if self.hold_election():
             last_heartbeat = datetime.datetime.now()
@@ -415,6 +375,7 @@ class MasterSyncController(SyncController):
                 services=self.services,
                 registry=self.registry)
             segments.append(segment) # TODO: fix this per comment above.
+        logging.info('assigning and balancing %r segments', len(segments))
 
         # host_ring_mapping will be e.g. { 'host1': { 'ring': 0, 'weight': 188921 }, 'host2': { 'ring': 0, 'weight': 190190091 }... }
         # the keys are node names, the values are array indices for the hash_rings variable (below)
@@ -422,18 +383,20 @@ class MasterSyncController(SyncController):
         if not host_ring_mapping:
             host_ring_mapping = Assignment(self.rethinker, { "id": "ring-assignments" })
 
-        host_dict = {host['node']: host for host in self.registry.host_load()}
+        host_weights = {host['node']: self.registry.total_bytes_for_node(host['node'])
+                        for host in self.registry.get_hosts()}
 
         # instantiate N hash rings where N is the lesser of (the maximum number of copies of any segment)
         # and (the number of currently available hosts)
         hash_rings = []
-        for i in range(min(max_copies, len(host_dict.keys()))):
+        for i in range(min(max_copies, len(host_weights))):
             ring = HashRing()
             ring.id = i
             hash_rings.append(ring)
 
         # prune hosts that don't exist anymore
-        for host in [key for key in host_ring_mapping.keys() if key not in host_dict and key != 'id']:
+        for host in [key for key in host_ring_mapping.keys() if key not in host_weights and key != 'id']:
+            logging.info('pruning worker %r from pool (worker went offline?)', host)
             del(host_ring_mapping[host])
 
         # assign each host to one hash ring. Save the assignment in rethink so it's reproducible.
@@ -443,12 +406,13 @@ class MasterSyncController(SyncController):
             hash_rings[host['ring']].add_node(hostname, { 'weight': host['weight'] })
             logging.info("Host '%s' assigned to ring %s" % (hostname, host['ring']))
 
-        for host in [host for host in host_dict.keys() if host not in host_ring_mapping]:
-            host = host_dict[host]
+        new_hosts = [host for host in host_weights if host not in host_ring_mapping]
+        for host in new_hosts:
+            weight = host_weights[host]
             host_ring = sorted(hash_rings, key=lambda ring: len(ring.get_nodes()))[0].id
-            host_ring_mapping[host['node']] = { 'weight': host['total_bytes'], 'ring': host_ring }
-            hash_rings[host_ring].add_node(host['node'], { 'weight': host['total_bytes'] })
-            logging.info("Host '%s' assigned to ring %s" % (host['node'], host_ring))
+            host_ring_mapping[host] = { 'weight': weight, 'ring': host_ring }
+            hash_rings[host_ring].add_node(host, { 'weight': weight })
+            logging.info("new trough worker %r assigned to ring %r", host, host_ring)
 
         host_ring_mapping.save()
 
@@ -500,7 +464,7 @@ class MasterSyncController(SyncController):
 
 
     def sync(self):
-        ''' 
+        '''
         "server" mode:
         - if I am not the leader, poll forever
         - if there are no hosts to assign to, poll forever.
@@ -509,13 +473,15 @@ class MasterSyncController(SyncController):
             - if it is not assigned:
                 - assign it using consistent hash rings, based on the available quota on each worker
         '''
-        self.found_hosts = False
-        # loops indefinitely waiting to become leader.
-        self.wait_to_become_leader()
-        # loops indefinitely waiting for hosts to hosts to which to assign segments
-        self.wait_for_hosts()
-        # assign each segment we found in our HDFS file listing
-        self.assign_segments()
+        if self.hold_election():
+            new_host_nodes = sorted([host.get('node') for host in self.registry.get_hosts()])
+            if new_host_nodes != self.current_host_nodes:
+                logging.info('pool of trough workers changed size from %r to %r (old=%r new=%r)', len(self.current_host_nodes), len(new_host_nodes), self.current_host_nodes, new_host_nodes)
+                self.current_host_nodes = new_host_nodes
+            if new_host_nodes:
+                self.assign_segments()
+            else:
+                logging.info('not assigning segments because there are no trough workers!')
 
     def provision_writable_segment(self, segment_id):
         # the query below implements this algorithm:
