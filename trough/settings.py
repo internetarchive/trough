@@ -56,7 +56,7 @@ settings = {
     'MINIMUM_ASSIGNMENTS': 2,
     'MAXIMUM_ASSIGNMENTS': 2,
     'LOG_LEVEL': 'INFO',
-    'SEGMENT_INITIALIZATION_SQL': os.path.join(os.path.dirname(__file__), os.path.pardir, "conf", "intialize.sql"),
+    'SEGMENT_INITIALIZATION_SQL': '/dev/null',
     'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
 }
 
