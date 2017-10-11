@@ -636,7 +636,12 @@ class LocalSyncController(SyncController):
         remote_mtimes = { self.segment_name_from_path(file['path']): file['modification_time'] / 1000 for file in remote_listing }
         local_listing = os.listdir(self.local_data)
         logging.info('assembling local file modification times...')
-        local_mtimes = { self.segment_name_from_path(path): os.stat(os.path.join(self.local_data, path)).st_mtime for path in local_listing }
+        local_mtimes = {}
+        for path in local_listing:
+            try:
+                local_mtimes[self.segment_name_from_path(path)] = os.stat(os.path.join(self.local_data, path)).st_mtime
+            except:
+                logging.warning('path %s appears to have moved during synchronization.')
         write_locks = { lock.segment: lock for lock in Lock.host_locks(self.rethinker, self.hostname) }
         stale_queue = []
         healthy_ids = []
@@ -671,9 +676,10 @@ class LocalSyncController(SyncController):
             read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
             logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
             healthy_ids.append(read_id)
-            if datetime.datetime.now() - datetime.timedelta(seconds=0.7 * round(settings['SYNC_LOOP_TIMING'] * 4)) > last_heartbeat:
+            if datetime.datetime.now() - datetime.timedelta(seconds=round(settings['SYNC_LOOP_TIMING'] * 2)) > last_heartbeat:
                 self.heartbeat()
                 last_heartbeat = datetime.datetime.now()
+                logging.info("copying down stale segments has exceeded 50% of the segments' lifetime. Copying will stop now, to allow services to check in.")
                 break # start the sync loop over, allowing all segments to check in as healthy
         self.registry.bulk_heartbeat(healthy_ids)
 
