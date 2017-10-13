@@ -400,32 +400,32 @@ class TestLocalSyncController(unittest.TestCase):
         self.assertEqual(output[0]['first_heartbeat'], output[0]['last_heartbeat'])
     @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.logging.error")
-    def test_sync_segments(self, error, snakebite):
+    def test_sync(self, error, snakebite):
         segments = [sync.Segment('test-segment', services=self.services, rethinker=self.rethinker, registry=self.registry, size=100)]
-        segments[0].remote_path = lambda: True
+        # segments[0].remote_path = lambda: '/some/hdfs/path'
         def segments_for_host(*args, **kwargs):
             return segments
         self.registry.segments_for_host = segments_for_host
         record_list = [{'length': 100, 'path': '/test-segment.sqlite', 'modification_time': 1497506983860 }]
         results = [{'error': 'test error'}]
-        class C:
-            def __init__(*args, **kwargs):
+        calls = []
+        class SnakebiteMockClient:
+            def __init__(self, *args, **kwargs):
                 pass
-            def ls(*args, **kwargs):
+            def ls(self, *args, **kwargs):
                 for record in record_list:
                     yield record
-            def copyToLocal(*args, **kwargs):
+            def copyToLocal(self, *args, **kwargs):
+                calls.append('copyToLocal(%r, %r)' % (args, kwargs))
                 for result in results:
                     yield result
-        snakebite.Client = C
-        called = []
-        def check_call(*args, **kwargs):
-            called.append(True)
-        self.registry.bulk_heartbeat = check_call
+        snakebite.Client = SnakebiteMockClient
         controller = self.get_controller()
         results = [{}]
-        controller.sync_segments()
-        self.assertEqual(called, [True, True])
+        controller.sync()
+        self.assertEqual(calls, [True, True])
+    def test_heartbeat_periodically(self):
+        self.assertTrue(False)
     def test_provision_writable_segment(self):
         test_segment = sync.Segment('test',
             services=self.services,
