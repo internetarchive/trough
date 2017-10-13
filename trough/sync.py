@@ -17,6 +17,7 @@ import sqlite3
 import re
 import contextlib
 from uhashring import HashRing
+import threading
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -525,9 +526,10 @@ class LocalSyncController(SyncController):
         while True:
             start = time.time()
             self.heartbeat()
-            self.registry.bulk_heartbeat(self.healthy_ids)
+            healthy_ids = list(self.healthy_ids)
+            self.registry.bulk_heartbeat(healthy_ids)
             elapsed = start - time.time()
-            logging.info('heartbeated %s segments in %0.2f sec', len(self.healthy_ids), elapsed)
+            logging.info('heartbeated %s segments in %0.2f sec', len(healthy_ids), elapsed)
             time.sleep(self.sync_loop_timing - elapsed)
 
     def check_config(self):
