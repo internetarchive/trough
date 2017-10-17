@@ -15,5 +15,6 @@ do
                 && virtualenv -p $python /tmp/venv \
                 && source /tmp/venv/bin/activate \
                 && pip install -e /trough --no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/ \
-                && python -m unittest discover"
+                && pip install pytest \
+                && py.test -v tests"
 done
