@@ -2,6 +2,7 @@ import trough
 from flask.views import MethodView
 from flask import Flask, request
 import logging
+import ujson
 
 app = Flask(__name__)
 
@@ -9,19 +10,27 @@ controller = trough.sync.get_controller(server_mode=True)
 controller.check_config()
 
 @app.route('/', methods=['POST'])
-@app.route('/write', methods=['POST'])
+def simple_provision_writable_segment():
+    ''' deprecated api '''
+    segment_name = request.get_data(as_text=True)
+    logging.info('provisioning writable segment %r', segment_name)
+    result_dict = controller.provision_writable_segment(segment_name)
+    return result_dict.get('write_url')
+
+@app.route('/provision', methods=['POST'])
 def provision_writable_segment():
     '''Provisions Writes. Will respond with a JSON object which describes segment metadata, including:
     - write url
     - segment size on disk
     - schema ID used to provision segment
 or respond with a 500 including error description.'''
-    schema = request.args.get('schema')
-    # TODO: this needs to do schema selection via a GET variable.
-    segment_name = request.get_data(as_text=True)
-    logging.info('provisioning writable segment %r (schema=%r)', segment_name, schema)
-    write_url = controller.provision_writable_segment(segment_name)
-    return write_url
+    segment_id = request.json['segment']
+    schema = request.json.get('schema')
+    logging.info('provisioning writable segment %r (schema=%r)', segment_id, schema)
+    # {'write_url': write_url, 'size': None, 'schema': schema}
+    result_dict = controller.provision_writable_segment(segment_id, schema=schema)
+    result_json = ujson.dumps(result_dict)
+    return result_json
 
 @app.route('/promote', methods=['POST'])
 def promote_writable_segment():
