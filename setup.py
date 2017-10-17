@@ -26,7 +26,7 @@ setup(
         'uWSGI==2.0.14',
         'doublethink>=0.2.0.dev84',
         'uhashring==0.7',
-        'flask-0.12.2',
+        'flask==0.12.2',
     ],
     scripts=glob.glob('scripts/*.py'),
 )

@@ -555,7 +555,7 @@ class MasterSyncController(SyncController):
     def get_schema(self, name):
         # need a rethinkdb table, get document by ID, return, 'schema' string
         assert True == False
-    def upsert_schema(self, name):
+    def upsert_schema(self, name, schema=None):
         # create a document, insert/update it, overwriting document with id 'name'.
         assert True == False
 
