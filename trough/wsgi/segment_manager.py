@@ -1,11 +1,11 @@
 import trough
 from flask.views import MethodView
-from flask import Flask
-from flask import request
+from flask import Flask, request
+import logging
 
 app = Flask(__name__)
 
-controller = trough.sync.get_controller(server_mode=False)
+controller = trough.sync.get_controller(server_mode=True)
 controller.check_config()
 
 @app.route('/', methods=['POST'])
@@ -16,9 +16,12 @@ def provision_writable_segment():
     - segment size on disk
     - schema ID used to provision segment
 or respond with a 500 including error description.'''
+    schema = request.args.get('schema')
     # TODO: this needs to do schema selection via a GET variable.
     segment_name = request.get_data(as_text=True)
-    return controller.provision_writable_segment(segment_name)
+    logging.info('provisioning writable segment %r (schema=%r)', segment_name, schema)
+    write_url = controller.provision_writable_segment(segment_name)
+    return write_url
 
 @app.route('/promote', methods=['POST'])
 def promote_writable_segment():

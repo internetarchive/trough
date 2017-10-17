@@ -23,7 +23,8 @@ before_install:
 install:
 - pip install git+https://github.com/jkafader/snakebite@feature/python3-version-string
 - pip install -e . --no-input --upgrade
+- pip install pytest
 script:
-- python -m unittest discover
+- py.test -v tests
 notifications:
     slack: internetarchive:PLZQTqR7RpyGNr1jb1TgMqhK

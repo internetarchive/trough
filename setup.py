@@ -28,5 +28,6 @@ setup(
         'uhashring==0.7',
         'flask==0.12.2',
     ],
+    tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
 )

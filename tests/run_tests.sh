@@ -11,9 +11,10 @@ do
     docker run --rm -it --volume="$script_dir/..:/trough" internetarchive/rethinkdb /sbin/my_init -- \
         bash -x -c "cd /tmp && git clone /trough \
                 && cd /tmp/trough \
-                && (cd /trough && git diff) | patch -p1 \
+                && (cd /trough && git diff HEAD) | patch -p1 \
                 && virtualenv -p $python /tmp/venv \
                 && source /tmp/venv/bin/activate \
                 && pip install -e /trough --no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/ \
-                && python -m unittest discover"
+                && pip install pytest \
+                && py.test -v tests"
 done

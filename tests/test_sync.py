@@ -12,7 +12,7 @@ import threading
 import datetime
 import time
 import doublethink
-import rethinkdb as r 
+import rethinkdb as r
 
 import random
 import string
