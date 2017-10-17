@@ -2,7 +2,7 @@ import trough
 from flask.views import View
 segment_manager = Flask(__name__)
 
-class SegmentManager()
+class SegmentManager:
     def __init__(self, *args, **kwargs):
         self.controller = trough.sync.get_controller(server_mode=False)
         self.controller.check_config()
@@ -28,7 +28,7 @@ This endpoint will toggle a value on the write lock record, which will be consul
 
     def list_schemas():
         '''Schema API Endpoint. list schema names'''
-        return ujson.dumps(self.controller.get_schemas()) # TODO
+        return ujson.dumps(self.controller.list_schemas()) # TODO
 
     def get_schema(self):
         '''Schema API Endpoint.
@@ -45,3 +45,4 @@ segment_manager.add_url_rule('/promote',       view_func=SegmentManager.as_view(
 segment_manager.add_url_rule('/schema',        view_func=SegmentManager.as_view('list_schemas'))
 segment_manager.add_url_rule("/schema/<name>", view_func=SegmentManager.as_view('get_schema'))
 
+# other wsgi endpoints as class based views as above here.

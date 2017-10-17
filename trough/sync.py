@@ -544,6 +544,22 @@ class MasterSyncController(SyncController):
                 raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
         return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
 
+    def promote_writable_segment_upstream(self, segment_id):
+        # commit current journal
+        # set segment to write-ahead log mode
+        # upload segment to HDFS
+        assert True == False
+    def list_schemas(self):
+        # need a rethinkdb table, get all IDS, return as a list
+        assert True == False
+    def get_schema(self, name):
+        # need a rethinkdb table, get document by ID, return, 'schema' string
+        assert True == False
+    def upsert_schema(self, name):
+        # create a document, insert/update it, overwriting document with id 'name'.
+        assert True == False
+
+
 # Local mode synchronizer.
 class LocalSyncController(SyncController):
     def __init__(self, *args, **kwargs):
