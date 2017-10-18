@@ -12,6 +12,12 @@ import urllib
 import doublethink
 
 class ReadServer:
+    def __init__(self):
+        self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
+        self.services = doublethink.ServiceRegistry(self.rethinker)
+        self.registry = trough.sync.HostRegistry(rethinker=self.rethinker, services=self.services)
+        trough.sync.init(self.rethinker)
+
     def proxy_for_write_host(self, node, segment, query):
         # enforce that we are querying the correct database, send an explicit hostname.
         write_url = "http://{node}:{port}/?segment={segment}".format(node=node, segment=segment.id, port=settings['READ_PORT'])
@@ -59,17 +65,14 @@ class ReadServer:
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
             segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split("."))[0]
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
-            rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
-            services = doublethink.ServiceRegistry(rethinker)
-            registry = trough.sync.HostRegistry(rethinker=rethinker, services=services)
-            segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=rethinker, services=services, registry=registry)
-            trough.sync.ensure_tables(rethinker)
+            segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=self.rethinker, services=self.services, registry=self.registry)
             query = env.get('wsgi.input').read()
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['node'] != settings['HOSTNAME']:
                 logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
                 return self.proxy_for_write_host(write_lock['node'], segment, query)
             return self.read(segment, query)
-        except Exception as e:
+        except BaseException as e:
+            logging.error('500 Server Error due to exception', exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]

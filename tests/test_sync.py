@@ -12,7 +12,7 @@ import threading
 import datetime
 import time
 import doublethink
-import rethinkdb as r 
+import rethinkdb as r
 
 import random
 import string
@@ -24,7 +24,7 @@ class TestSegment(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -158,7 +158,7 @@ class TestHostRegistry(unittest.TestCase):
     def setUp(self):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -168,85 +168,6 @@ class TestHostRegistry(unittest.TestCase):
         registry.heartbeat(pool='trough-nodes', service_id='trough:nodes:%s' % hostname, node=hostname, ttl=0.6)
         output = registry.get_hosts()
         self.assertEqual(output[0]['node'], "test.example.com")
-    def test_hosts_exist(self):
-        hostname = 'test.example.com'
-        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        self.assertEqual(registry.hosts_exist(), False)
-        registry.heartbeat(pool='trough-nodes', service_id='trough:nodes:%s' % hostname, node=hostname, ttl=0.6)
-        self.assertEqual(registry.hosts_exist(), True)
-    def test_host_load(self):
-        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        hostname = 'test.example.com'
-        registry.heartbeat(pool='trough-nodes',
-            service_id='trough:nodes:%s' % hostname,
-            node=hostname,
-            ttl=0.6,
-            available_bytes=1024*1024)
-        segment = sync.Segment('test-segment-1',
-            services=self.services,
-            rethinker=self.rethinker,
-            registry=registry,
-            size=1024)
-        registry.assign(hostname='test.example.com', segment=segment, remote_path="/fake/path1")
-        segment = sync.Segment('test-segment-2',
-            services=self.services,
-            rethinker=self.rethinker,
-            registry=registry,
-            size=1024)
-        registry.assign(hostname='test.example.com', segment=segment, remote_path="/fake/path2")
-        registry.commit_assignments()
-        output = registry.host_load()
-        self.assertEqual(output[0]['assigned_bytes'], 2048)
-    def test_min_acceptable_load_ratio(self):
-        ''' the min acceptable load ratio is a metric that represents the load ratio that 
-        should be considered underloaded enough to reassign segments. A ratio of
-        0 means that no segments will be reassigned. A ratio of 1 means that all segments
-        will be reassigned. Numbers in between mean that segments will be reassigned from the
-        highest-loaded to the lowest-loaded host until the target is achieved.'''
-        registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        test1 = 'test1.example.com'
-        test2 = 'test2.example.com'
-        registry.heartbeat(pool='trough-nodes',
-            service_id='trough:nodes:%s' % test1,
-            node=test1,
-            ttl=0.6,
-            available_bytes=1024*1024)
-        registry.heartbeat(pool='trough-nodes',
-            service_id='trough:nodes:%s' % test2,
-            node=test2,
-            ttl=0.6,
-            available_bytes=1024*1024)
-        # zero segments
-        output = registry.min_acceptable_load_ratio(registry.host_load(), 0)
-        self.assertEqual(output, 0)
-        # one segment
-        output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 1000)
-        self.assertEqual(output, 0)
-        # a few segments, exactly the same size, clear ratio to load
-        for i in range(0, 8):
-            segment = sync.Segment('test-segment-%s' % i,
-                services=self.services,
-                rethinker=self.rethinker,
-                registry=registry,
-                size=1024 * 128)
-            registry.assign(hostname=test2 if i > 4 else test1, segment=segment, remote_path='/fake/path')
-        registry.commit_assignments()
-        output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 128)
-        self.assertEqual(output, 0.375)
-        # delete all assignments
-        self.rethinker.table("assignment").delete().run()
-        # a few segments, sized reasonably in re: the load
-        for i in range(0, 9):
-            segment = sync.Segment('test-segment-%s' % i,
-                services=self.services,
-                rethinker=self.rethinker,
-                registry=registry,
-                size=1024 * 400 if i == 6 else 1024 * 200)
-            registry.assign(hostname=test2 if i > 5 else test1, segment=segment, remote_path='/fake/path')
-        registry.commit_assignments()
-        output = registry.min_acceptable_load_ratio(registry.host_load(), 1024 * 400)
-        self.assertTrue(output > 0)
-        self.rethinker.table("assignment").delete().run()
     def test_heartbeat(self):
         '''This function unusually produces indeterminate output.'''
         hostname = 'test.example.com'
@@ -296,7 +217,7 @@ class TestMasterSyncController(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.snakebite_client = mock.Mock()
         self.rethinker.table("services").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -332,38 +253,6 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(output, True)
         output = controller.hold_election()
         self.assertEqual(output, True)
-    def test_wait_to_become_leader(self):
-        # TODO: this test should be considered 'failing'. see above.
-        time.sleep(0.1)
-        foreign_controller = self.get_foreign_controller()
-        foreign_controller.hold_election()
-        controller = self.get_local_controller()
-        begin = datetime.datetime.now()
-        controller.wait_to_become_leader()
-        end = datetime.datetime.now()
-        runtime = end - begin
-        self.assertTrue(0 < runtime.total_seconds() <= 1)
-    def test_wait_for_hosts(self):
-        THREAD_DELAY = 0.1
-        THREAD_JITTER = 0.05
-        hostname = 'test.example.com'
-        controller = self.get_local_controller()
-        def register_host():
-            time.sleep(THREAD_DELAY)
-            self.registry.heartbeat(pool='trough-nodes',
-                service_id='trough:nodes:%s' % hostname,
-                node=hostname,
-                ttl=0.3,
-                available_bytes=1024*1024)
-        t = threading.Thread(target=register_host)
-        t.start()
-        begin = datetime.datetime.now()
-        controller.wait_for_hosts()
-        end = datetime.datetime.now()
-        runtime = end - begin
-        mintime = THREAD_DELAY - (settings['ELECTION_CYCLE'] + THREAD_JITTER)
-        maxtime = THREAD_DELAY + (settings['ELECTION_CYCLE'] + THREAD_JITTER)
-        self.assertTrue(mintime <= runtime.total_seconds() <= maxtime)
     @mock.patch("trough.sync.client")
     def test_get_segment_file_list(self, snakebite):
         class C:
@@ -413,7 +302,7 @@ class TestMasterSyncController(unittest.TestCase):
         def p(url, data):
             u.append(url)
             d.append(data)
-            if url == 'http://example4:6111/':
+            if url == 'http://example4:6112/':
                 return Response(500)
             else:
                 return Response(200)
@@ -444,13 +333,13 @@ class TestMasterSyncController(unittest.TestCase):
         # check behavior when readable copy exists
         self.rethinker.table('lock').get('write:lock:testsegment').delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[0], 'http://example2:6111/')
+        self.assertEqual(u[0], 'http://example2:6112/')
         self.assertEqual(d[0], 'testsegment')
         self.assertEqual(output, 'http://example2:6222/?segment=testsegment')
         # check behavior when only pool of nodes exists
         self.rethinker.table('services').get( "trough-read:example2:testsegment").delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[1], 'http://example3:6111/')
+        self.assertEqual(u[1], 'http://example3:6112/')
         self.assertEqual(d[1], 'testsegment')
         self.assertEqual(output, 'http://example3:6222/?segment=testsegment')
         self.rethinker.table('services').delete().run()
@@ -461,9 +350,9 @@ class TestMasterSyncController(unittest.TestCase):
             'ttl': 999,
             'last_heartbeat': r.now(),
         }).run()
-        with self.assertRaises(Exception):
+        with self.assertRaisesRegex(Exception, 'Received response from local write provisioner: 500'):
             output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[2], 'http://example4:6111/')
+        self.assertEqual(u[2], 'http://example4:6112/')
         self.assertEqual(d[2], 'testsegment')
         # check behavior when no nodes in pool?
     def test_sync(self):
