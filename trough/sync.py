@@ -17,6 +17,7 @@ import sqlite3
 import re
 import contextlib
 from uhashring import HashRing
+import ujson
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -244,7 +245,7 @@ class HostRegistry(object):
         doc['ttl'] = ttl
         doc['load'] = os.getloadavg()[1] # load average over last 5 mins
         logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with ttl %s' % (pool, node, node, doc.get('port'), ttl))
-        self.services.heartbeat(doc)
+        return self.services.heartbeat(doc)
     def bulk_heartbeat(self, ids):
         self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now(), 'load': os.getloadavg()[1] }).run()
         # send a non-bulk heartbeat for each id we *didn't* just update
@@ -513,7 +514,10 @@ class MasterSyncController(SyncController):
             response = requests.post(post_url, segment_id)
             if response.status_code != 200:
                 raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
-        return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
+        # write_url = "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
+        # result_dict = {'write_url': write_url,
+        result_dict = ujson.loads(response.text)
+        return result_dict
 
     def promote_writable_segment_upstream(self, segment_id):
         # this function should make a call to the downstream server that holds the write lock
@@ -673,7 +677,7 @@ class LocalSyncController(SyncController):
         self.registry.bulk_heartbeat(healthy_ids)
 
 
-    def provision_writable_segment(self, segment_id):
+    def provision_writable_segment(self, segment_id, schema='default'):
         # instantiate the segment
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
@@ -689,7 +693,7 @@ class LocalSyncController(SyncController):
 
         # TODO: spawn a thread for these?
         logging.info('heartbeating write service for segment %r', segment_id)
-        self.registry.heartbeat(pool='trough-write',
+        trough_write_status = self.registry.heartbeat(pool='trough-write',
             segment=segment_id,
             node=self.hostname,
             port=self.write_port,
@@ -710,6 +714,13 @@ class LocalSyncController(SyncController):
             logging.info('provisioning local segment %r', segment_id)
             segment.provision_local_segment()
         logging.info('finished provisioning writable segment %r', segment_id)
+
+        result_dict = {
+            'write_url': trough_write_status['url'],
+            'size': os.path.getsize(segment.local_path()),
+            'schema': schema,
+        }
+        return result_dict
 
     def sync(self):
         '''
