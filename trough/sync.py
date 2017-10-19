@@ -333,7 +333,6 @@ class MasterSyncController(SyncController):
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['SYNC_SERVER_PORT'], "SYNC_SERVER_PORT must be set. We need to know the output port."
             assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
-            assert False # Need to check for a 'default' schema here and provide a resonable error message.
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
