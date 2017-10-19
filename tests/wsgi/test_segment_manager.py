@@ -14,11 +14,13 @@ def test_simple_provision(segment_manager_server):
     # hasn't been provisioned yet
     result = segment_manager_server.post('/', data='test_simple_provision_segment')
     assert result.status_code == 200
+    assert result.mimetype == 'text/plain'
     assert b''.join(result.response).endswith(b':6222/?segment=test_simple_provision_segment')
 
     # now it has already been provisioned
     result = segment_manager_server.post('/', data='test_simple_provision_segment')
     assert result.status_code == 200
+    assert result.mimetype == 'text/plain'
     assert b''.join(result.response).endswith(b':6222/?segment=test_simple_provision_segment')
 
 def test_provision(segment_manager_server):
@@ -30,6 +32,7 @@ def test_provision(segment_manager_server):
             '/provision', content_type='application/json',
             data=ujson.dumps({'segment':'test_provision_segment'}))
     assert result.status_code == 200
+    assert result.mimetype == 'application/json'
     result_bytes = b''.join(result.response)
     result_dict = ujson.loads(result_bytes) # ujson accepts bytes! 😻
     assert result_dict['write_url'].endswith(':6222/?segment=test_provision_segment')
@@ -39,8 +42,8 @@ def test_provision(segment_manager_server):
             '/provision', content_type='application/json',
             data=ujson.dumps({'segment':'test_provision_segment'}))
     assert result.status_code == 200
+    assert result.mimetype == 'application/json'
     result_bytes = b''.join(result.response)
     result_dict = ujson.loads(result_bytes)
     assert result_dict['write_url'].endswith(':6222/?segment=test_provision_segment')
 
-# def test_schemas(segment_manager_server)

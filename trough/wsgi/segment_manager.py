@@ -1,6 +1,6 @@
 import trough
 from flask.views import MethodView
-from flask import Flask, request
+from flask import Flask, request, Response
 import logging
 import ujson
 
@@ -14,7 +14,7 @@ def make_app(controller):
         segment_id = request.get_data(as_text=True)
         logging.info('provisioning writable segment %r', segment_id)
         result_dict = controller.provision_writable_segment(segment_id)
-        return result_dict.get('write_url')
+        return Response(result_dict.get('write_url'), mimetype='text/plain')
 
     @app.route('/provision', methods=['POST'])
     def provision_writable_segment():
@@ -29,7 +29,7 @@ def make_app(controller):
         # {'write_url': write_url, 'size': None, 'schema': schema}
         result_dict = controller.provision_writable_segment(segment_id, schema=schema)
         result_json = ujson.dumps(result_dict)
-        return result_json
+        return Response(result_json, mimetype='application/json')
 
     @app.route('/promote', methods=['POST'])
     def promote_writable_segment():
