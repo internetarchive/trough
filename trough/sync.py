@@ -360,6 +360,7 @@ class MasterSyncController(SyncController):
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
             assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
             assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
+            assert False # Need to check for a 'default' schema here and provide a resonable error message.
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
@@ -518,7 +519,7 @@ class MasterSyncController(SyncController):
         # assign each segment we found in our HDFS file listing
         self.assign_segments()
 
-    def provision_writable_segment(self, segment_id):
+    def provision_writable_segment(self, segment_id, schema='default'):
         # the query below implements this algorithm:
         # - look up a write lock for the passed-in segment
         # - if the write lock exists, return it. else:
@@ -547,12 +548,11 @@ class MasterSyncController(SyncController):
 
     def promote_writable_segment_upstream(self, segment_id):
         # this function should make a call to the downstream server that holds the write lock
-        
+
         # Consider use of this module: https://github.com/husio/python-sqlite3-backup
         # with pauses in between page copies to allow reads.
         # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
         assert False
-
     def list_schemas(self):
         # need a rethinkdb table, get all IDS, return as a list
         assert True == False
