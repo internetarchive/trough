@@ -546,10 +546,13 @@ class MasterSyncController(SyncController):
         return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
 
     def promote_writable_segment_upstream(self, segment_id):
-        # commit current journal
-        # set segment to write-ahead log mode
-        # upload segment to HDFS
-        assert True == False
+        # this function should make a call to the downstream server that holds the write lock
+        
+        # Consider use of this module: https://github.com/husio/python-sqlite3-backup
+        # with pauses in between page copies to allow reads.
+        # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
+        assert False
+
     def list_schemas(self):
         # need a rethinkdb table, get all IDS, return as a list
         assert True == False
