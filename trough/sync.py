@@ -508,14 +508,10 @@ class MasterSyncController(SyncController):
                         .order_by('load')[0].default({ })
                 )
             ).run()
-        # finally, if we have not retrieved a write lock, we need to talk to the local node.
-        if not assignment.get('id', '').startswith('write:lock'):
-            post_url = 'http://%s:%s/' % (assignment['node'], self.sync_local_port)
-            response = requests.post(post_url, segment_id)
-            if response.status_code != 200:
-                raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
-        # write_url = "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
-        # result_dict = {'write_url': write_url,
+        post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
+        response = requests.post(post_url, json={'segment': segment_id, 'schema': schema})
+        if response.status_code != 200:
+            raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
         result_dict = ujson.loads(response.text)
         return result_dict
 
