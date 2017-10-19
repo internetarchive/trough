@@ -68,3 +68,5 @@ RUN mv -v /etc/hadoop/conf/hdfs-site.xml /etc/hadoop/conf/hdfs-site.xml.orig \
 
 RUN echo '#!/bin/bash\nservice hadoop-hdfs-namenode start\nservice hadoop-hdfs-datanode start' > /etc/my_init.d/50_start_hdfs.sh \
     && chmod a+x /etc/my_init.d/50_start_hdfs.sh
+
+RUN apt-get -y install libsqlite3-dev
