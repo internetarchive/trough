@@ -78,7 +78,8 @@ def test_schemas(segment_manager_server):
 
     # create new schema
     result = segment_manager_server.post(
-            '/schema/schema1', 'create table foo (bar varchar(100));')
+            '/schema/schema1', content_type='applicaton/sql', 
+            data='create table foo (bar varchar(100));')
     assert result.status_code == 201
 
     # updated list of schemas
@@ -92,13 +93,13 @@ def test_schemas(segment_manager_server):
     # get the new schema (as sql)
     result = segment_manager_server.get('/schema/schema1')
     assert result.status_code == 200
-    assert result.mimetype == 'application/json'
+    assert result.mimetype == 'application/sql'
     result_bytes = b''.join(result.response)
-    result_dict = ujson.loads(result_bytes)
-    assert result_dict == {'id': 'schema1', 'sql': 'create table foo (bar varchar(100));'}
+    assert result_bytes == b'create table foo (bar varchar(100));'
 
     # get the new schema (as json)
-    result = segment_manager_server.get('/schema/schema1', )
+    result = segment_manager_server.get(
+            '/schema/schema1', headers={'Accept': 'application/json'})
     assert result.status_code == 200
     assert result.mimetype == 'application/json'
     result_bytes = b''.join(result.response)
@@ -107,11 +108,13 @@ def test_schemas(segment_manager_server):
 
     # overwrite the schema we just created
     result = segment_manager_server.post(
-            '/schema/schema1', 'create table bar (baz varchar(100));')
-    assert result.status_code == 201
+            '/schema/schema1', content_type='applicaton/sql', 
+            data='create table bar (baz varchar(100));')
+    assert result.status_code == 200
 
     # get the modified schema
-    result = segment_manager_server.get('/schema/schema1')
+    result = segment_manager_server.get(
+            '/schema/schema1', headers={'Accept': 'application/json'})
     assert result.status_code == 200
     assert result.mimetype == 'application/json'
     result_bytes = b''.join(result.response)
@@ -125,4 +128,25 @@ def test_schemas(segment_manager_server):
     result_bytes = b''.join(result.response)
     result_list = ujson.loads(result_bytes)
     assert set(result_list) == {'default', 'schema1'}
+
+def test_promotion(segment_manager_server):
+    result = segment_manager_server.get('/promote')
+    assert result.status == '405 METHOD NOT ALLOWED'
+
+    assert False
+    # provision a test segment for write
+    # result = segment_manager_server.post(
+    #         '/provision', content_type='application/json',
+    #         data=ujson.dumps({'segment':'test_provision_segment'}))
+    # assert result.status_code == 200
+    # assert result.mimetype == 'application/json'
+    # result_bytes = b''.join(result.response)
+    # result_dict = ujson.loads(result_bytes)
+    # assert result_dict['write_url'].endswith(':6222/?segment=test_provision_segment')
+
+    # # now it has already been provisioned
+    # result = segment_manager_server.post('/promote', data='test_simple_provision_segment')
+    # assert result.status_code == 200
+    # assert result.mimetype == 'text/plain'
+    # assert b''.join(result.response).endswith(b':6222/?segment=test_simple_provision_segment')
 

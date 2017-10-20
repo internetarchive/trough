@@ -543,7 +543,15 @@ class MasterSyncController(SyncController):
         return schema
     def set_schema(self, id, schema=None):
         # create a document, insert/update it, overwriting document with id 'id'.
-        assert True == False
+        created = False
+        output = Schema.load(self.rethinker, id)
+        if not output:
+            output = Schema(self.rethinker, d={})
+            created = True
+        output.id = id
+        output.sql = schema
+        output.save()
+        return (output, created)
 
 
 # Local mode synchronizer.

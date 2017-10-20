@@ -69,7 +69,15 @@ def make_app(controller):
         '''Schema API Endpoint.
     Get request responds with schema listing for schema with 'id'.
     Post request creates/updates schema with 'id'.'''
-        return controller.set_schema(id=id, schema=flask.request.get_data(as_text=True))
+        schema, created = controller.set_schema(id=id, schema=flask.request.get_data(as_text=True))
+
+        best_match = flask.request.accept_mimetypes.best_match(
+                ['application/sql', 'application/json'])
+
+        if best_match == 'application/json':
+            return flask.Response(ujson.dumps(schema), status=201 if created else 200, mimetype='application/json')
+        else:
+            return flask.Response(schema.sql, status=201 if created else 200, mimetype='application/sql')
 
     return app
 
