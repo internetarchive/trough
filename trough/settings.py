@@ -56,7 +56,6 @@ settings = {
     'MINIMUM_ASSIGNMENTS': 2,
     'MAXIMUM_ASSIGNMENTS': 2,
     'LOG_LEVEL': 'INFO',
-    'SEGMENT_INITIALIZATION_SQL': None,
     'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
 }
 

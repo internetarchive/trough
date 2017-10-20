@@ -35,6 +35,7 @@ def setup_connection(conn):
             logging.error('REGEXP(%r, %r)', expr, item, exc_info=True)
             raise
 
+    # TODO these next two functions are stupidly specific to archive-it
     def seed_crawled_status_filter(status_code):
         ''' convert crawler status codes to human-readable test '''
         try:
@@ -222,10 +223,6 @@ class Segment(object):
         connection = sqlite3.connect(self.local_path())
         setup_connection(connection)
         cursor = connection.cursor()
-        if settings['SEGMENT_INITIALIZATION_SQL']:
-            with open(settings['SEGMENT_INITIALIZATION_SQL'], 'r') as script:
-                query = script.read()
-                cursor.executescript(query)
         cursor.close()
         connection.commit()
         connection.close()
