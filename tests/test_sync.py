@@ -296,18 +296,18 @@ class TestMasterSyncController(unittest.TestCase):
         u = []
         d = []
         class Response(object):
-            def __init__(self, code):
+            def __init__(self, code, text):
                 self.status_code = code
-            text = "Test"
-        def p(url, data):
+                self.text = text or "Test"
+        def p(url, data=None, json=None):
             u.append(url)
-            d.append(data)
-            if url == 'http://example4:6112/':
-                return Response(500)
+            d.append(data or json)
+            host = url.split("/")[2].split(":")[0]
+            if url == 'http://example4:6112/provision':
+                return Response(500, "Test")
             else:
-                return Response(200)
+                return Response(200, """{ "url": "http://%s:6222/?segment=testsegment" }""" % host)
         requests.post = p
-        # check behavior when lock exists
         self.rethinker.table('services').insert({
             'role': "trough-nodes",
             'node': "example3",
@@ -328,20 +328,21 @@ class TestMasterSyncController(unittest.TestCase):
             'node':'example', 
             'segment': 'testsegment' }).run()
         controller = self.get_local_controller()
+        # check behavior when lock exists
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(output, 'http://example:6222/?segment=testsegment')
+        self.assertEqual(output['url'], 'http://example:6222/?segment=testsegment')
         # check behavior when readable copy exists
         self.rethinker.table('lock').get('write:lock:testsegment').delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[0], 'http://example2:6112/')
-        self.assertEqual(d[0], 'testsegment')
-        self.assertEqual(output, 'http://example2:6222/?segment=testsegment')
+        self.assertEqual(u[1], 'http://example2:6112/provision')
+        self.assertEqual(d[1]['segment'], 'testsegment')
+        self.assertEqual(output['url'], 'http://example2:6222/?segment=testsegment')
         # check behavior when only pool of nodes exists
         self.rethinker.table('services').get( "trough-read:example2:testsegment").delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[1], 'http://example3:6112/')
-        self.assertEqual(d[1], 'testsegment')
-        self.assertEqual(output, 'http://example3:6222/?segment=testsegment')
+        self.assertEqual(u[2], 'http://example3:6112/provision')
+        self.assertEqual(d[2]['segment'], 'testsegment')
+        self.assertEqual(output['url'], 'http://example3:6222/?segment=testsegment')
         self.rethinker.table('services').delete().run()
         self.rethinker.table('services').insert({
             'role': "trough-nodes",
@@ -352,8 +353,8 @@ class TestMasterSyncController(unittest.TestCase):
         }).run()
         with self.assertRaisesRegex(Exception, 'Received response from local write provisioner: 500'):
             output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[2], 'http://example4:6112/')
-        self.assertEqual(d[2], 'testsegment')
+        self.assertEqual(u[3], 'http://example4:6112/provision')
+        self.assertEqual(d[3]['segment'], 'testsegment')
         # check behavior when no nodes in pool?
     def test_sync(self):
         pass
