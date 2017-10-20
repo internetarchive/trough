@@ -129,9 +129,21 @@ class Lock(doublethink.Document):
     def host_locks(cls, rr, host):
         return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="node").run())
 
+class Schema(doublethink.Document):
+    pass
+
 def init(rethinker):
     Assignment.table_ensure(rethinker)
     Lock.table_ensure(rethinker)
+    Schema.table_ensure(rethinker)
+    default_schema = Schema.load(rethinker, 'default')
+    if not default_schema:
+        default_schema = Schema(rethinker, d={'sql':''})
+        default_schema.id = 'default'
+        logging.info('saving default schema %r', default_schema)
+        default_schema.save()
+    else:
+        logging.info('default schema already exists %r', default_schema)
     try:
         rethinker.table('services').index_create('segment').run()
         rethinker.table('services').index_wait('segment').run()
@@ -523,13 +535,14 @@ class MasterSyncController(SyncController):
         # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
         assert False
     def list_schemas(self):
-        # need a rethinkdb table, get all IDS, return as a list
-        assert True == False
-    def get_schema(self, name):
-        # need a rethinkdb table, get document by ID, return, 'schema' string
-        assert True == False
-    def set_schema(self, name, schema=None):
-        # create a document, insert/update it, overwriting document with id 'name'.
+        gen = self.rethinker.table(Schema.table)['id'].run()
+        result = list(gen)
+        return result
+    def get_schema(self, id):
+        schema = Schema.load(self.rethinker, id)
+        return schema
+    def set_schema(self, id, schema=None):
+        # create a document, insert/update it, overwriting document with id 'id'.
         assert True == False
 
 

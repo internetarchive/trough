@@ -47,3 +47,82 @@ def test_provision(segment_manager_server):
     result_dict = ujson.loads(result_bytes)
     assert result_dict['write_url'].endswith(':6222/?segment=test_provision_segment')
 
+def test_schemas(segment_manager_server):
+    # initial list of schemas
+    result = segment_manager_server.get('/schema')
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_list = ujson.loads(result_bytes)
+    assert set(result_list) == {'default'}
+
+    # existent schema (as sql)
+    result = segment_manager_server.get('/schema/default')
+    assert result.status_code == 200
+    assert result.mimetype == 'application/sql'
+    result_bytes = b''.join(result.response)
+    assert result_bytes == b''
+
+    # existent schema (as json)
+    result = segment_manager_server.get(
+            '/schema/default', headers={'Accept': 'application/json'})
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'id': 'default', 'sql': ''}
+
+    # schema doesn't exist yet
+    result = segment_manager_server.get('/schema/schema1')
+    assert result.status_code == 404
+
+    # create new schema
+    result = segment_manager_server.post(
+            '/schema/schema1', 'create table foo (bar varchar(100));')
+    assert result.status_code == 201
+
+    # updated list of schemas
+    result = segment_manager_server.get('/schema')
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_list = ujson.loads(result_bytes)
+    assert set(result_list) == {'default', 'schema1'}
+
+    # get the new schema (as sql)
+    result = segment_manager_server.get('/schema/schema1')
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'id': 'schema1', 'sql': 'create table foo (bar varchar(100));'}
+
+    # get the new schema (as json)
+    result = segment_manager_server.get('/schema/schema1', )
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'id': 'schema1', 'sql': 'create table foo (bar varchar(100));'}
+
+    # overwrite the schema we just created
+    result = segment_manager_server.post(
+            '/schema/schema1', 'create table bar (baz varchar(100));')
+    assert result.status_code == 201
+
+    # get the modified schema
+    result = segment_manager_server.get('/schema/schema1')
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'id': 'schema1', 'sql': 'create table bar (baz varchar(100));'}
+
+    # updated list of schemas
+    result = segment_manager_server.get('/schema')
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_list = ujson.loads(result_bytes)
+    assert set(result_list) == {'default', 'schema1'}
+
