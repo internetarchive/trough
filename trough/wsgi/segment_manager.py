@@ -2,6 +2,7 @@ import trough
 import flask
 import logging
 import ujson
+import sqlite3
 
 def make_app(controller):
     controller.check_config()
@@ -43,41 +44,65 @@ def make_app(controller):
 
     @app.route('/schema', methods=['GET'])
     def list_schemas():
-        '''Schema API Endpoint. list schema names'''
+        '''Schema API Endpoint, lists schema names'''
         result_json = ujson.dumps(controller.list_schemas())
         return flask.Response(result_json, mimetype='application/json')
 
     @app.route('/schema/<id>', methods=['GET'])
     def get_schema(id):
-        '''Schema API Endpoint.
-    Get request responds with schema listing for schema with 'id'.
-    Post request creates/updates schema with 'id'.'''
+        '''Schema API Endpoint, returns schema json'''
         schema = controller.get_schema(id=id)
         if not schema:
             flask.abort(404)
+        return flask.Response(ujson.dumps(schema), mimetype='application/json')
 
-        best_match = flask.request.accept_mimetypes.best_match(
-                ['application/sql', 'application/json'])
+    @app.route('/schema/<id>/sql', methods=['GET'])
+    def get_schema_sql(id):
+        '''Schema API Endpoint, returns schema sql'''
+        schema = controller.get_schema(id=id)
+        if not schema:
+            flask.abort(404)
+        return flask.Response(schema.sql, mimetype='application/sql')
 
-        if best_match == 'application/json':
-            return flask.Response(ujson.dumps(schema), mimetype='application/json')
-        else:
-            return flask.Response(schema.sql, mimetype='application/sql')
+    @app.route('/schema/<id>', methods=['PUT'])
+    def put_schema(id):
+        '''Schema API Endpoint, creates or updates schema from json input'''
+        try:
+            schema_dict = ujson.loads(flask.request.get_data(as_text=True))
+        except:
+            return flask.Response(
+                    status=400, mimetype='text/plain',
+                    response='input could not be parsed as json')
+        if set(schema_dict.keys()) != {'id','sql'}:
+            return flask.Response(status=400, mimetype='text/plain', response=(
+                "input json has keys %r (should be {'id', 'sql'})" % set(schema_dict.keys())))
+        if schema_dict.get('id') != id:
+            return flask.Response(
+                    status=400, mimetype='text/plain',
+                    response='id in json %r does not match id in url %r' % (
+                        schema_dict.get('id'), id))
 
-    @app.route('/schema/<id>', methods=['POST'])
-    def set_schema(id):
-        '''Schema API Endpoint.
-    Get request responds with schema listing for schema with 'id'.
-    Post request creates/updates schema with 'id'.'''
-        schema, created = controller.set_schema(id=id, schema=flask.request.get_data(as_text=True))
+        try:
+            schema, created = controller.set_schema(id=id, sql=schema_dict['sql'])
+        except sqlite3.OperationalError as e:
+            return flask.Response(
+                    status=400, mimetype='text/plain',
+                    response='schema sql failed validation: %s' % e)
 
-        best_match = flask.request.accept_mimetypes.best_match(
-                ['application/sql', 'application/json'])
+        return flask.Response(status=201 if created else 204)
 
-        if best_match == 'application/json':
-            return flask.Response(ujson.dumps(schema), status=201 if created else 200, mimetype='application/json')
-        else:
-            return flask.Response(schema.sql, status=201 if created else 200, mimetype='application/sql')
+    @app.route('/schema/<id>/sql', methods=['PUT'])
+    def put_schema_sql(id):
+        '''Schema API Endpoint, creates or updates schema from sql input'''
+        sql = flask.request.get_data(as_text=True)
+        try:
+            schema, created = controller.set_schema(id=id, sql=sql)
+        except sqlite3.OperationalError as e:
+            return flask.Response(
+                    status=400, mimetype='text/plain',
+                    response='schema sql failed validation: %s' % e)
+
+        return flask.Response(status=201 if created else 204)
 
     return app
 

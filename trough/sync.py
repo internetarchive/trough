@@ -541,7 +541,8 @@ class MasterSyncController(SyncController):
     def get_schema(self, id):
         schema = Schema.load(self.rethinker, id)
         return schema
-    def set_schema(self, id, schema=None):
+    def set_schema(self, id, sql):
+        validate_schema_sql(sql)
         # create a document, insert/update it, overwriting document with id 'id'.
         created = False
         output = Schema.load(self.rethinker, id)
@@ -549,10 +550,18 @@ class MasterSyncController(SyncController):
             output = Schema(self.rethinker, d={})
             created = True
         output.id = id
-        output.sql = schema
+        output.sql = sql
         output.save()
         return (output, created)
 
+def validate_schema_sql(sql):
+    '''
+    Schema sql is considered valid if it runs without error in an empty sqlite
+    database.
+    '''
+    connection = sqlite3.connect(':memory:')
+    connection.executescript(sql) # may raise exception
+    connection.close()
 
 # Local mode synchronizer.
 class LocalSyncController(SyncController):
