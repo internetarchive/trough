@@ -144,14 +144,7 @@ class TestSegment(unittest.TestCase):
         if segment.local_segment_exists():
             os.remove(segment.local_path())
         output = segment.provision_local_segment()
-        connection = sqlite3.connect(segment.local_path())
-        cursor = connection.cursor()
-        results = cursor.execute('SELECT * FROM test;')
-        output = [dict((cursor.description[i][0], value) for i, value in enumerate(row)) for row in results]
-        connection.close()
         os.remove(segment.local_path())
-        self.assertEqual(output, [{'id': 1, 'test': 'test'}])
-
 
 
 class TestHostRegistry(unittest.TestCase):
