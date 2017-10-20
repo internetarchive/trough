@@ -5,6 +5,12 @@ if [ -z "$VIRTUAL_ENV" ] ; then
     exit 1
 fi
 
+python -c 'import trough'
+if [ $? -ne 0 ]; then
+    echo "trough module could not be imported. Are you in the right virtualenv?"
+    exit 1
+fi
+
 pkill -f $VIRTUAL_ENV/bin/reader.py
 pkill -f $VIRTUAL_ENV/bin/writer.py
 pkill -f $VIRTUAL_ENV/bin/sync.py

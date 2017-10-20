@@ -5,6 +5,12 @@ if [ -z "$VIRTUAL_ENV" ] ; then
     exit 1
 fi
 
+python -c 'import trough'
+if [ $? -ne 0 ]; then
+    echo "trough module could not be imported. Are you in the right virtualenv?"
+    exit 1
+fi
+
 source $VIRTUAL_ENV/bin/activate
 
 set -x
