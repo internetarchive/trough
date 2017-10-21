@@ -28,19 +28,8 @@ class ReadServer:
             for chunk in r.iter_content():
                 yield chunk
 
-    def read(self, segment, query):
-        logging.info('Servicing request: {query}'.format(query=query))
-        # if the user sent more than one query, or the query is not a SELECT, raise an exception.
-        if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
-            raise Exception('Exactly one SELECT query per request, please.')
-        assert os.path.isfile(segment.local_path())
-        logging.info("Connecting to sqlite database: {segment}".format(segment=segment.local_path()))
-        connection = sqlite3.connect(segment.local_path())
-        trough.sync.setup_connection(connection)
-        cursor = connection.cursor()
+    def sql_result_json_iter(self, cursor):
         first = True
-        cursor.execute(query.decode('utf-8'))
-        self.start_response('200 OK', [('Content-Type','application/json')])
         yield b"["
         try:
             for row in cursor.fetchall():
@@ -65,11 +54,26 @@ class ReadServer:
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
             segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=self.rethinker, services=self.services, registry=self.registry)
             query = env.get('wsgi.input').read()
+
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['node'] != settings['HOSTNAME']:
                 logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
                 return self.proxy_for_write_host(write_lock['node'], segment, query)
-            return self.read(segment, query)
+
+            logging.info('Servicing request: {query}'.format(query=query))
+            # if the user sent more than one query, or the query is not a SELECT, raise an exception.
+            if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
+                raise Exception('Exactly one SELECT query per request, please.')
+            assert os.path.isfile(segment.local_path())
+
+            logging.info("Connecting to sqlite database: {segment}".format(segment=segment.local_path()))
+            connection = sqlite3.connect(segment.local_path())
+            trough.sync.setup_connection(connection)
+            cursor = connection.cursor()
+            cursor.execute(query.decode('utf-8'))
+
+            self.start_response('200 OK', [('Content-Type','application/json')])
+            return self.sql_result_json_iter(cursor)
         except BaseException as e:
             logging.error('500 Server Error due to exception', exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])

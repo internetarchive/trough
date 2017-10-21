@@ -19,7 +19,7 @@ rethinkdb >>/tmp/rethinkdb.log 2>&1 &
 docker run --detach --rm --name=hadoop --publish=8020:8020 --publish=50070:50070 --publish=50010:50010 --publish=50020:50020 --publish=50075:50075 chalimartines/cdh5-pseudo-distributed && sleep 30
 
 $VIRTUAL_ENV/bin/sync.py >>/tmp/trough-sync-local.out 2>&1 &
-sleep 5
+sleep 3.5
 python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; rr.db('trough_configuration').wait().run()"
 
 uwsgi --venv=$VIRTUAL_ENV --http :6444 --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/reader.py >>/tmp/trough-read.out 2>&1 &
