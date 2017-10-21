@@ -24,10 +24,10 @@ def make_app(controller):
         - schema ID used to provision segment
     or respond with a 500 including error description.'''
         segment_id = flask.request.json['segment']
-        schema = flask.request.json.get('schema')
-        logging.info('provisioning writable segment %r (schema=%r)', segment_id, schema)
+        schema_id = flask.request.json.get('schema', 'default')
+        logging.info('provisioning writable segment %r (schema_id=%r)', segment_id, schema_id)
         # {'write_url': write_url, 'size': None, 'schema': schema}
-        result_dict = controller.provision_writable_segment(segment_id, schema=schema)
+        result_dict = controller.provision_writable_segment(segment_id, schema_id=schema_id)
         result_json = ujson.dumps(result_dict)
         return flask.Response(result_json, mimetype='application/json')
 

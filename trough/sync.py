@@ -219,10 +219,11 @@ class Segment(object):
         return ""
     def local_segment_exists(self):
         return os.path.isfile(self.local_path())
-    def provision_local_segment(self):
+    def provision_local_segment(self, schema_sql):
         connection = sqlite3.connect(self.local_path())
         setup_connection(connection)
         cursor = connection.cursor()
+        cursor.executescript(schema_sql)
         cursor.close()
         connection.commit()
         connection.close()
@@ -325,6 +326,25 @@ class SyncController:
         if len(sizes) > 1:
             raise Exception('Received more than one file listing.')
         return sizes[0]
+    def list_schemas(self):
+        gen = self.rethinker.table(Schema.table)['id'].run()
+        result = list(gen)
+        return result
+    def get_schema(self, id):
+        schema = Schema.load(self.rethinker, id)
+        return schema
+    def set_schema(self, id, sql):
+        validate_schema_sql(sql)
+        # create a document, insert/update it, overwriting document with id 'id'.
+        created = False
+        output = Schema.load(self.rethinker, id)
+        if not output:
+            output = Schema(self.rethinker, d={})
+            created = True
+        output.id = id
+        output.sql = sql
+        output.save()
+        return (output, created)
 
 # Master or "Server" mode synchronizer.
 class MasterSyncController(SyncController):
@@ -498,7 +518,7 @@ class MasterSyncController(SyncController):
             else:
                 logging.info('not assigning segments because there are no trough workers!')
 
-    def provision_writable_segment(self, segment_id, schema='default'):
+    def provision_writable_segment(self, segment_id, schema_id='default'):
         # the query below implements this algorithm:
         # - look up a write lock for the passed-in segment
         # - if the write lock exists, return it. else:
@@ -518,9 +538,10 @@ class MasterSyncController(SyncController):
                 )
             ).run()
         post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
-        response = requests.post(post_url, json={'segment': segment_id, 'schema': schema})
+        json_data = {'segment': segment_id, 'schema': schema_id}
+        response = requests.post(post_url, json=json_data)
         if response.status_code != 200:
-            raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
+            raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
         result_dict = ujson.loads(response.text)
         return result_dict
 
@@ -531,25 +552,6 @@ class MasterSyncController(SyncController):
         # with pauses in between page copies to allow reads.
         # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
         assert False
-    def list_schemas(self):
-        gen = self.rethinker.table(Schema.table)['id'].run()
-        result = list(gen)
-        return result
-    def get_schema(self, id):
-        schema = Schema.load(self.rethinker, id)
-        return schema
-    def set_schema(self, id, sql):
-        validate_schema_sql(sql)
-        # create a document, insert/update it, overwriting document with id 'id'.
-        created = False
-        output = Schema.load(self.rethinker, id)
-        if not output:
-            output = Schema(self.rethinker, d={})
-            created = True
-        output.id = id
-        output.sql = sql
-        output.save()
-        return (output, created)
 
 def validate_schema_sql(sql):
     '''
@@ -700,7 +702,7 @@ class LocalSyncController(SyncController):
         self.registry.bulk_heartbeat(healthy_ids)
 
 
-    def provision_writable_segment(self, segment_id, schema='default'):
+    def provision_writable_segment(self, segment_id, schema_id='default'):
         # instantiate the segment
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
@@ -734,14 +736,17 @@ class LocalSyncController(SyncController):
         # check that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
+            schema = self.get_schema(schema_id)
+            if not schema:
+                raise Exception('no such schema id=%r' % schema_id)
             logging.info('provisioning local segment %r', segment_id)
-            segment.provision_local_segment()
+            segment.provision_local_segment(schema.sql)
         logging.info('finished provisioning writable segment %r', segment_id)
 
         result_dict = {
             'write_url': trough_write_status['url'],
             'size': os.path.getsize(segment.local_path()),
-            'schema': schema,
+            'schema': schema_id,
         }
         return result_dict
 

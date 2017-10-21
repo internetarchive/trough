@@ -1,6 +1,10 @@
 import pytest
 from trough.wsgi.segment_manager import server
 import ujson
+from trough.settings import settings
+import doublethink
+import rethinkdb as r
+import requests # :-\ urllib3?
 
 @pytest.fixture(scope="module")
 def segment_manager_server():
@@ -46,6 +50,45 @@ def test_provision(segment_manager_server):
     result_bytes = b''.join(result.response)
     result_dict = ujson.loads(result_bytes)
     assert result_dict['write_url'].endswith(':6222/?segment=test_provision_segment')
+
+def test_provision_with_schema(segment_manager_server):
+    schema = '''CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, test varchar(4));
+INSERT INTO test (test) VALUES ("test");'''
+    # create a schema by submitting sql
+    result = segment_manager_server.put(
+            '/schema/test1/sql', content_type='applicaton/sql', data=schema)
+    assert result.status_code == 201
+
+    # provision a segment with that schema
+    result = segment_manager_server.post(
+            '/provision', content_type='application/json',
+            data=ujson.dumps({'segment':'test_provision_with_schema_1', 'schema':'test1'}))
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes) # ujson accepts bytes! 😻
+    assert result_dict['write_url'].endswith(':6222/?segment=test_provision_with_schema_1')
+
+    # get db read url from rethinkdb
+    rethinker = doublethink.Rethinker(
+            servers=settings['RETHINKDB_HOSTS'], db='trough_configuration')
+    query = rethinker.table('services').get_all('test_provision_with_schema_1', index='segment').filter({'role': 'trough-read'}).filter(lambda svc: r.now().sub(svc['last_heartbeat']).lt(svc['ttl'])).order_by('load')[0]
+    healthy_segment = query.run()
+    read_url = healthy_segment.get('url')
+    assert read_url.endswith(':6444/?segment=test_provision_with_schema_1')
+
+    # run a query to check that the schema was used
+    sql = 'SELECT * FROM test;'
+    with requests.post(read_url, stream=True, data=sql) as response:
+        assert response.status_code == 200
+        result = ujson.loads(response.text)
+        assert result == [{'test': 'test', 'id': 1}]
+
+    # delete the schema from rethinkdb for the sake of other tests
+    rethinker = doublethink.Rethinker(
+            servers=settings['RETHINKDB_HOSTS'], db='trough_configuration')
+    result = rethinker.table('schema').get('test1').delete().run()
+    assert result == {'deleted': 1, 'inserted': 0, 'skipped': 0, 'errors': 0, 'unchanged': 0, 'replaced': 0}
 
 def test_schemas(segment_manager_server):
     # initial list of schemas
