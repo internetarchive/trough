@@ -7,7 +7,6 @@ import os
 import sqlparse
 import logging
 import requests
-from contextlib import closing
 import urllib
 import doublethink
 
@@ -21,8 +20,7 @@ class ReadServer:
     def proxy_for_write_host(self, node, segment, query):
         # enforce that we are querying the correct database, send an explicit hostname.
         write_url = "http://{node}:{port}/?segment={segment}".format(node=node, segment=segment.id, port=settings['READ_PORT'])
-        # this "closing" syntax is recommended here: http://docs.python-requests.org/en/master/user/advanced/
-        with closing(requests.post(write_url, stream=True, data=query)) as r:
+        with requests.post(write_url, stream=True, data=query) as r:
             status_line = '{status_code} {reason}'.format(status_code=r.status_code, reason=r.reason)
             # headers [('Content-Type','application/json')]
             headers = [("Content-Type", r.headers['Content-Type'],)]
