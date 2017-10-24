@@ -246,23 +246,37 @@ def test_schemas(segment_manager_server):
     # XXX DELETE?
 
 def test_promotion(segment_manager_server):
+    from snakebite.client import Client
+
+    snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+
     result = segment_manager_server.get('/promote')
     assert result.status == '405 METHOD NOT ALLOWED'
 
-    assert False
     # provision a test segment for write
-    # result = segment_manager_server.post(
-    #         '/provision', content_type='application/json',
-    #         data=ujson.dumps({'segment':'test_provision_segment'}))
-    # assert result.status_code == 200
-    # assert result.mimetype == 'application/json'
-    # result_bytes = b''.join(result.response)
-    # result_dict = ujson.loads(result_bytes)
-    # assert result_dict['write_url'].endswith(':6222/?segment=test_provision_segment')
+    result = segment_manager_server.post(
+            '/provision', content_type='application/json',
+            data=ujson.dumps({'segment':'test_promote_segment'}))
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict['write_url'].endswith(':6222/?segment=test_promote_segment')
+    write_url = result_dict['write_url']
+    byte_count = result_dict['size']
 
-    # # now it has already been provisioned
-    # result = segment_manager_server.post('/promote', data='test_simple_provision_segment')
-    # assert result.status_code == 200
-    # assert result.mimetype == 'text/plain'
-    # assert b''.join(result.response).endswith(b':6222/?segment=test_simple_provision_segment')
+    listing = snakebite_client.ls([settings['HDFS_PATH']])
+    listing_before_promotion = {item['path']: item['length'] for item in listing}
+    assert 'test_promote_segment.sqlite' not in listing_before_promotion
 
+    # now write to the segment and promote it to HDFS
+    result = segment_manager_server.post(
+            '/promote', content_type='application/json',
+            data=ujson.dumps({'segment': 'test_simple_promote_segment'}))
+    assert result.status_code == 200
+    assert result.mimetype == 'text/plain'
+    assert b''.join(result.response).endswith(b':6222/?segment=test_simple_promote_segment')
+
+    listing_after_promotion = {item['path']: item['length'] for item in snakebite_client.ls([settings['HDFS_PATH']])}
+    assert 'test_promote_segment.sqlite' in listing_after_promotion
+    assert byte_count == listing_after_promotion.get(item['filename'])
