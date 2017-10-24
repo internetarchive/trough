@@ -18,6 +18,8 @@ import re
 import contextlib
 from uhashring import HashRing
 import ujson
+from hdfs3 import HDFileSystem
+import sqlitebck
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -544,14 +546,31 @@ class MasterSyncController(SyncController):
             raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
         result_dict = ujson.loads(response.text)
         return result_dict
-
-    def promote_writable_segment_upstream(self, segment_id):
+    def promote_writable_segment_upstream(self, segment_id, upstream_path):
         # this function should make a call to the downstream server that holds the write lock
 
         # Consider use of this module: https://github.com/husio/python-sqlite3-backup
         # with pauses in between page copies to allow reads.
         # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
-        assert False
+        # query below is an implementation of this algoritm:
+        # if a lock exists, insert a flag representing the promotion into it, if it doesn't return None
+
+        output = self.rethinker.table('lock')\
+            .get('write:lock:%s' % segment_id)\
+            .update({'under_promotion': True}, return_changes=True)
+        try:
+            lock = output['changes'][0]
+        except:
+            if output['unchanged'] > 0:
+                raise Exception("Segment %s is currently being copied upstream" % segment_id)
+            if output['skipped'] > 0:
+                raise Exception("Segment %s is not currently writable" % segment_id)
+            raise Exception("An error occurred while retrieving the write lock for segment %s" % segment_id)
+
+        # forward the request downstream to actually perform the promotion
+        post_url = 'http://%s:%s/promote' % (lock['node'], self.sync_local_port)
+        response = requests.post(post_url, json={'segment': segment_id, 'upstream_path': upstream_path})
+        return response
 
 def validate_schema_sql(sql):
     '''
@@ -749,6 +768,37 @@ class LocalSyncController(SyncController):
             'schema': schema_id,
         }
         return result_dict
+
+    def do_segment_promotion(self, segment):
+        import sqlitebck
+        # copy file to temporary location
+        # spawn an HDFS process to put the temporary file upstream
+        # unset the promotion flag on the write record
+        hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
+        with NamedTemporaryFile as temp_file:
+            source = sqlite3.connect(segment.local_path)
+            dest = sqlite3.connect(temp_file)
+            sqlitebck.copy(source, dest)
+            source.close()
+            dest.close()
+            hdfs.put(temp_file, segment.remote_path())
+            logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path())
+
+    def promote_writable_segment_upstream(self, segment_id):
+        # Consider use of this module: https://github.com/husio/python-sqlite3-backup
+        # with pauses in between page copies to allow reads.
+        # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
+        # forward the request downstream to actually perform the promotion
+
+        # retrieve write lock, ensuring that the segment is under promotion
+        # spawn a thread to perform the promotion
+
+        # return a response that the promotion is working 
+        assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
+
+        post_url = 'http://%s:%s/promote' % (lock['node'], self.sync_local_port)
+        response = requests.post(post_url, json={'segment': segment_id, 'schema': schema})
+        return response
 
     def sync(self):
         '''
