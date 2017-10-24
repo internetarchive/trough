@@ -519,18 +519,22 @@ class LocalSyncController(SyncController):
         self.healthy_ids = set()
 
     def start(self):
-        th = threading.Thread(target=self.heartbeat_periodically, daemon=True)
+        th = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
         th.start()
 
-    def heartbeat_periodically(self):
+    def heartbeat_periodically_forever(self):
         while True:
             start = time.time()
-            self.heartbeat()
-            healthy_ids = list(self.healthy_ids)
-            self.registry.bulk_heartbeat(healthy_ids)
+            self.periodic_heartbeat()
             elapsed = start - time.time()
             logging.info('heartbeated %s segments in %0.2f sec', len(healthy_ids), elapsed)
             time.sleep(self.sync_loop_timing - elapsed)
+
+    def periodic_heartbeat(self):
+        self.heartbeat()
+        healthy_ids = list(self.healthy_ids)
+        self.registry.bulk_heartbeat(healthy_ids)
+        return healthy_ids
 
     def check_config(self):
         try:

@@ -386,7 +386,8 @@ class TestLocalSyncController(unittest.TestCase):
             services=self.services,
             rethinker=self.rethinker,
             registry=self.registry,
-            size=100)
+            size=100,
+            remote_path='/fake/remote/path')
         with self.assertRaises(Exception):
             output = controller.copy_segment_from_hdfs(segment)
         results = [{}]
@@ -424,8 +425,28 @@ class TestLocalSyncController(unittest.TestCase):
         results = [{}]
         controller.sync()
         self.assertEqual(calls, [True, True])
-    def test_heartbeat_periodically(self):
-        self.assertTrue(False)
+    def test_periodic_heartbeat(self):
+        controller = self.get_controller()
+        controller.sync_loop_timing = 1
+        controller.healthy_ids = {'trough:read:id0', 'trough:read:id1'}
+        assert set(self.rethinker.table('services')['id'].run()) == set()
+
+        # first time it inserts individual services
+        heartbeats_after = doublethink.utcnow()
+        healthy_ids = controller.periodic_heartbeat()
+        assert set(healthy_ids) == {'trough:read:id0', 'trough:read:id1'}
+        assert set(self.rethinker.table('services')['id'].run()) == {'trough-nodes:read01:None', 'trough:read:id0', 'trough:read:id1'}
+        for svc in self.rethinker.table('services').run():
+            assert svc['last_heartbeat'] > heartbeats_after
+
+        # subsequently updates existing services in one bulk query
+        heartbeats_after = doublethink.utcnow()
+        healthy_ids = controller.periodic_heartbeat()
+        assert set(healthy_ids) == {'trough:read:id0', 'trough:read:id1'}
+        assert set(self.rethinker.table('services')['id'].run()) == {'trough-nodes:read01:None', 'trough:read:id0', 'trough:read:id1'}
+        for svc in self.rethinker.table('services').run():
+            assert svc['last_heartbeat'] > heartbeats_after
+
     def test_provision_writable_segment(self):
         test_segment = sync.Segment('test',
             services=self.services,
