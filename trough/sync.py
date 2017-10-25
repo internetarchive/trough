@@ -259,7 +259,7 @@ class HostRegistry(object):
         self.assignment_queue.commit()
     def segments_for_host(self, host):
         locks = Lock.host_locks(self.rethinker, host)
-        segments = {segment_id: Segment(segment_id=lock.segment, size=0, rethinker=self.rethinker, services=self.services, registry=self) for lock in locks}
+        segments = {lock.segment: Segment(segment_id=lock.segment, size=0, rethinker=self.rethinker, services=self.services, registry=self) for lock in locks}
         assignments = Assignment.host_assignments(self.rethinker, host)
         for asmt in assignments:
             segments[asmt.segment] = Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self, remote_path=asmt.remote_path)
@@ -516,7 +516,7 @@ class LocalSyncController(SyncController):
         self.hostname = settings['HOSTNAME']
         self.read_id_tmpl = 'trough-read:%s:%%s' % self.hostname
         self.write_id_tmpl = 'trough-write:%s:%%s' % self.hostname
-        self.healthy_ids = set()
+        self.healthy_service_ids = set()
 
     def start(self):
         th = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
@@ -527,14 +527,14 @@ class LocalSyncController(SyncController):
             start = time.time()
             self.periodic_heartbeat()
             elapsed = start - time.time()
-            logging.info('heartbeated %s segments in %0.2f sec', len(healthy_ids), elapsed)
+            logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
             time.sleep(self.sync_loop_timing - elapsed)
 
     def periodic_heartbeat(self):
         self.heartbeat()
-        healthy_ids = list(self.healthy_ids)
-        self.registry.bulk_heartbeat(healthy_ids)
-        return healthy_ids
+        healthy_service_ids = list(self.healthy_service_ids)
+        self.registry.bulk_heartbeat(healthy_service_ids)
+        return healthy_service_ids
 
     def check_config(self):
         try:
@@ -588,24 +588,24 @@ class LocalSyncController(SyncController):
         segments_of_interest = set(assignments + local_segments)
         write_locks = list of locks assigned to this node
 
-        for segment in self.healthy_ids:
+        for segment in self.healthy_service_ids:
             if segment not in segments_of_interest:
-                discard write id from self.healthy_ids
-                discard read id from self.healthy_ids
+                discard write id from self.healthy_service_ids
+                discard read id from self.healthy_service_ids
 
         for segment in segments_of_interest:
             if segment exists locally and is newer than hdfs:
-                add read id to self.healthy_ids
+                add read id to self.healthy_service_ids
                 if segment in write_locks:
-                    add write id to self.healthy_ids
+                    add write id to self.healthy_service_ids
             else: # segment does not exist locally or is older than hdfs:
-                discard write id from self.healthy_ids
-                discard read id from self.healthy_ids
+                discard write id from self.healthy_service_ids
+                discard read id from self.healthy_service_ids
                 add to stale queue
 
         for segment in stale_queue:
             copy down from hdfs
-            add read id to self.healthy_ids
+            add read id to self.healthy_service_ids
             delete write lock from rethinkdb
         '''
         logging.info('sync starting')
@@ -644,28 +644,28 @@ class LocalSyncController(SyncController):
         segments_of_interest.update(local_mtimes.keys())
 
         count = 0
-        for segment_id in self.healthy_ids:
+        for service_id in list(self.healthy_service_ids):
+            segment_id = service_id.split(':')[-1]
             if segment_id not in segments_of_interest:
-                self.healthy_ids.discard(self.read_id_tmpl % segment_id)
-                self.healthy_ids.discard(self.write_id_tmpl % segment_id)
-                logging.debug('segment %r is gone from host %r', segment_id, self.hostname)
+                self.healthy_service_ids.discard(service_id)
+                logging.debug('discarded %r from healthy service ids because segment %r is gone from host %r', service_id, segment_id, self.hostname)
                 count += 1
-        logging.info('%r segments are gone from host %r since last sync', count, self.hostname)
+        logging.info('%r healthy service ids discarded on %r since last sync', count, self.hostname)
 
         for segment_id in segments_of_interest:
             if segment_id in local_mtimes and local_mtimes[segment_id] >= remote_mtimes.get(segment_id, 0):
-                if (self.read_id_tmpl % segment_id) not in self.healthy_ids:
+                if (self.read_id_tmpl % segment_id) not in self.healthy_service_ids:
                     logging.debug('adding %r to healthy segment list', (self.read_id_tmpl % segment_id))
-                self.healthy_ids.add(self.read_id_tmpl % segment_id)
+                self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
                 if segment_id in write_locks:
-                    if (self.write_id_tmpl % segment_id) not in self.healthy_ids:
+                    if (self.write_id_tmpl % segment_id) not in self.healthy_service_ids:
                         logging.debug('adding %r to healthy segment list', (self.write_id_tmpl % segment_id))
-                    self.healthy_ids.add(self.write_id_tmpl % segment_id)
+                    self.healthy_service_ids.add(self.write_id_tmpl % segment_id)
             else: # segment does not exist locally or is older than hdfs
                 assert segment_id in my_segments # can't get here otherwise
                 assert segment_id in remote_mtimes
-                self.healthy_ids.discard(self.read_id_tmpl % segment_id)
-                self.healthy_ids.discard(self.write_id_tmpl % segment_id)
+                self.healthy_service_ids.discard(self.read_id_tmpl % segment_id)
+                self.healthy_service_ids.discard(self.write_id_tmpl % segment_id)
                 stale_queue.append(segment_id)
 
         for segment_id in stale_queue:
@@ -681,7 +681,7 @@ class LocalSyncController(SyncController):
             except Exception as e:
                 logging.error('Error during HDFS copy of segment %r', segment_id, exc_info=True)
                 continue
-            self.healthy_ids.add(self.read_id_tmpl % segment_id)
+            self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
             if segment_id in write_locks:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
                 self.decommission_writable_segment(segment, write_locks[segment_id])

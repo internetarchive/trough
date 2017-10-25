@@ -12,10 +12,10 @@ import threading
 import datetime
 import time
 import doublethink
-import rethinkdb as r 
-
+import rethinkdb as r
 import random
 import string
+import tempfile
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
 
@@ -365,7 +365,7 @@ class TestLocalSyncController(unittest.TestCase):
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         self.snakebite_client = mock.Mock()
         self.rethinker.table("services").delete().run()
-    def get_controller(self):
+    def make_fresh_controller(self):
         return sync.LocalSyncController(rethinker=self.rethinker,
             services=self.services,
             registry=self.registry)
@@ -381,7 +381,7 @@ class TestLocalSyncController(unittest.TestCase):
                 for result in results:
                     yield result
         snakebite.Client = C
-        controller = self.get_controller()
+        controller = self.make_fresh_controller()
         segment = sync.Segment('test-segment',
             services=self.services,
             rethinker=self.rethinker,
@@ -394,56 +394,104 @@ class TestLocalSyncController(unittest.TestCase):
         output = controller.copy_segment_from_hdfs(segment)
         self.assertEqual(output, True)
     def test_heartbeat(self):
-        controller = self.get_controller()
+        controller = self.make_fresh_controller()
         controller.heartbeat()
         output = [svc for svc in self.rethinker.table('services').run()]
-        self.assertEqual(output[0]['node'], 'read01')
+        self.assertEqual(output[0]['node'], 'test01')
         self.assertEqual(output[0]['first_heartbeat'], output[0]['last_heartbeat'])
+
     @mock.patch("trough.sync.client")
-    @mock.patch("trough.sync.logging.error")
-    def test_sync(self, error, snakebite):
-        segments = [sync.Segment('test-segment', services=self.services, rethinker=self.rethinker, registry=self.registry, size=100)]
-        # segments[0].remote_path = lambda: '/some/hdfs/path'
-        def segments_for_host(*args, **kwargs):
-            return segments
-        self.registry.segments_for_host = segments_for_host
-        record_list = [{'length': 100, 'path': '/test-segment.sqlite', 'modification_time': 1497506983860 }]
-        results = [{'error': 'test error'}]
-        calls = []
-        class SnakebiteMockClient:
-            def __init__(self, *args, **kwargs):
+    def test_sync_discard_uninteresting_segments(self, snakebite):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = self.make_fresh_controller()
+            controller.local_data = tmp_dir
+            sync.ensure_tables(self.rethinker)
+            assert controller.healthy_service_ids == set()
+            controller.sync()
+            assert controller.healthy_service_ids == set()
+            controller.healthy_service_ids.add('trough-read:test01:1')
+            controller.healthy_service_ids.add('trough-read:test01:2')
+            controller.healthy_service_ids.add('trough-write:test01:2')
+            controller.sync()
+            assert controller.healthy_service_ids == set()
+
+            # make segment 3 a segment of interest
+            with open(os.path.join(tmp_dir, '3.sqlite'), 'wb'):
                 pass
-            def ls(self, *args, **kwargs):
-                for record in record_list:
-                    yield record
-            def copyToLocal(self, *args, **kwargs):
-                calls.append('copyToLocal(%r, %r)' % (args, kwargs))
-                for result in results:
-                    yield result
-        snakebite.Client = SnakebiteMockClient
-        controller = self.get_controller()
-        results = [{}]
-        controller.sync()
-        self.assertEqual(calls, [True, True])
+            controller.healthy_service_ids.add('trough-read:test01:1')
+            controller.healthy_service_ids.add('trough-read:test01:3')
+            controller.healthy_service_ids.add('trough-write:test01:3')
+            controller.sync()
+            assert controller.healthy_service_ids == {'trough-read:test01:3', 'trough-write:test01:3'}
+
+    @mock.patch("trough.sync.client")
+    def test_sync_segment_freshness(self, snakebite):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = self.make_fresh_controller()
+            controller.local_data = tmp_dir
+            sync.ensure_tables(self.rethinker)
+            assert controller.healthy_service_ids == set()
+            # make segment 4 a segment of interest
+            with open(os.path.join(tmp_dir, '4.sqlite'), 'wb'):
+                pass
+            controller.sync()
+            assert controller.healthy_service_ids == {'trough-read:test01:4'}
+
+            # create a write lock
+            lock = sync.Lock.acquire(self.rethinker, 'trough-write:test01:4', {'segment':'4'})
+            controller.sync()
+            assert controller.healthy_service_ids == {'trough-read:test01:4', 'trough-write:test01:4'}
+            locks = list(self.rethinker.table('lock').run())
+            assert len(locks) == 1
+            assert locks[0]['id'] == 'trough-write:test01:4'
+
+        self.rethinker.table('lock').delete().run()
+        self.rethinker.table('assignment').delete().run()
+
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                yield {'length': 1024 * 1000, 'path': '/5.sqlite', 'modification_time': 1}
+            def copyToLocal(*args, **kwargs):
+                return [{'error':''}]
+        snakebite.Client = C
+
+        # clean slate
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = self.make_fresh_controller()
+            # create an assignment without a local segment
+            assignment = sync.Assignment(self.rethinker, d={
+                'hash_ring': 'a', 'node': 'test01', 'segment': '5',
+                'assigned_on': r.now(), 'remote_path': '/5.sqlite', 'bytes': 0})
+            assignment.save()
+            lock = sync.Lock.acquire(self.rethinker, 'trough-write:test01:5', {'segment':'5'})
+            assert len(list(self.rethinker.table('lock').run())) == 1
+            controller.healthy_service_ids.add('trough-write:test01:5')
+            controller.healthy_service_ids.add('trough-read:test01:5')
+            controller.sync()
+            assert controller.healthy_service_ids == {'trough-read:test01:5'}
+            assert list(self.rethinker.table('lock').run()) == []
+
     def test_periodic_heartbeat(self):
-        controller = self.get_controller()
+        controller = self.make_fresh_controller()
         controller.sync_loop_timing = 1
-        controller.healthy_ids = {'trough:read:id0', 'trough:read:id1'}
+        controller.healthy_service_ids = {'trough-read:test01:id0', 'trough-read:test01:id1'}
         assert set(self.rethinker.table('services')['id'].run()) == set()
 
         # first time it inserts individual services
         heartbeats_after = doublethink.utcnow()
-        healthy_ids = controller.periodic_heartbeat()
-        assert set(healthy_ids) == {'trough:read:id0', 'trough:read:id1'}
-        assert set(self.rethinker.table('services')['id'].run()) == {'trough-nodes:read01:None', 'trough:read:id0', 'trough:read:id1'}
+        healthy_service_ids = controller.periodic_heartbeat()
+        assert set(healthy_service_ids) == {'trough-read:test01:id0', 'trough-read:test01:id1'}
+        assert set(self.rethinker.table('services')['id'].run()) == {'trough-nodes:test01:None', 'trough-read:test01:id0', 'trough-read:test01:id1'}
         for svc in self.rethinker.table('services').run():
             assert svc['last_heartbeat'] > heartbeats_after
 
         # subsequently updates existing services in one bulk query
         heartbeats_after = doublethink.utcnow()
-        healthy_ids = controller.periodic_heartbeat()
-        assert set(healthy_ids) == {'trough:read:id0', 'trough:read:id1'}
-        assert set(self.rethinker.table('services')['id'].run()) == {'trough-nodes:read01:None', 'trough:read:id0', 'trough:read:id1'}
+        healthy_service_ids = controller.periodic_heartbeat()
+        assert set(healthy_service_ids) == {'trough-read:test01:id0', 'trough-read:test01:id1'}
+        assert set(self.rethinker.table('services')['id'].run()) == {'trough-nodes:test01:None', 'trough-read:test01:id0', 'trough-read:test01:id1'}
         for svc in self.rethinker.table('services').run():
             assert svc['last_heartbeat'] > heartbeats_after
 
@@ -457,7 +505,7 @@ class TestLocalSyncController(unittest.TestCase):
         if os.path.isfile(test_path):
             os.remove(test_path)
         called = []
-        controller = self.get_controller()
+        controller = self.make_fresh_controller()
         controller.provision_writable_segment('test')
         self.assertEqual(os.path.isfile(test_path), True)
         os.remove(test_path)
