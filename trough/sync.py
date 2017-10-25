@@ -673,7 +673,7 @@ class LocalSyncController(SyncController):
                 self.healthy_service_ids.discard(self.write_id_tmpl % segment_id)
                 stale_queue.append(segment_id)
 
-        for segment_id in stale_queue:
+        for segment_id in sorted(stale_queue, reverse=True):
             segment = my_segments[segment_id]
             if segment_id in local_mtimes:
                 logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
