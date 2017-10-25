@@ -380,7 +380,8 @@ class MasterSyncController(SyncController):
         # the keys are node names, the values are array indices for the hash_rings variable (below)
         host_ring_mapping = Assignment.load(self.rethinker, "ring-assignments")
         if not host_ring_mapping:
-            host_ring_mapping = Assignment(self.rethinker, { "id": "ring-assignments" })
+            host_ring_mapping = Assignment(self.rethinker, {})
+            host_ring_mapping.id = "ring-assignments"
 
         host_weights = {host['node']: self.registry.total_bytes_for_node(host['node'])
                         for host in self.registry.get_hosts()}
