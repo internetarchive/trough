@@ -616,16 +616,17 @@ class LocalSyncController(SyncController):
             # iterator of dicts that look like this
             # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
             remote_listing = self.get_segment_file_list()
+            remote_mtimes = {}  # { segment_id: mtime (long) }
+            for file in remote_listing:
+                segment_id = self.segment_id_from_path(file['path'])
+                remote_mtimes[segment_id] = file['modification_time'] / 1000
+                segment = my_segments.get(segment_id)
+                if segment and segment.remote_path != file['path']:
+                    logging.warn('path of segment %r from Assignment differs from path found in hdfs %r',
+                                 segment_id, file['path'])
         except Exception as e:
             logging.error('Error while listing files from HDFS', exc_info=True)
-        remote_mtimes = {}  # { segment_id: mtime (long) }
-        for file in remote_listing:
-            segment_id = self.segment_id_from_path(file['path'])
-            remote_mtimes[segment_id] = file['modification_time'] / 1000
-            segment = my_segments.get(segment_id)
-            if segment and segment.remote_path != file['path']:
-                logging.warn('path of segment %r from Assignment differs from path found in hdfs %r',
-                             segment_id, file['path'])
+            logging.warning('PROCEEDING WITHOUT DATA FROM HDFS')
         logging.info('found %r segments in hdfs', len(remote_mtimes))
         # list of filenames
         local_listing = os.listdir(self.local_data)
