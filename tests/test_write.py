@@ -62,7 +62,7 @@ class TestWriteServer(unittest.TestCase):
         env['wsgi.input'].read = lambda: b'INSERT INTO test (test) VALUES ("test")'
         start = mock.Mock()
         output = self.server(env, start)
-        self.assertEqual(output, [b"500 Server Error: This node (settings['HOSTNAME']='read01') cannot write to segment 'TEST'. There is no write lock set, or the write lock authorizes another node. Write lock: None\n"])
+        self.assertEqual(output, [b"500 Server Error: This node (settings['HOSTNAME']='test01') cannot write to segment 'TEST'. There is no write lock set, or the write lock authorizes another node. Write lock: None\n"])
         database_file.close()
 
 if __name__ == '__main__':

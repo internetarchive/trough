@@ -20,6 +20,7 @@ from uhashring import HashRing
 import ujson
 from hdfs3 import HDFileSystem
 import sqlitebck
+import threading
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -166,7 +167,7 @@ class Segment(object):
         self.rethinker = rethinker
         self.services = services
         self.registry = registry
-        self._remote_path = remote_path
+        self.remote_path = remote_path
     def host_key(self, host):
         return "%s:%s" % (host, self.id)
     def all_copies(self):
@@ -212,13 +213,6 @@ class Segment(object):
             return None
     def local_path(self):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
-    def remote_path(self):
-        if self._remote_path:
-            return self._remote_path
-        asmt = Assignment.load(self.rethinker, self.host_key(settings['HOSTNAME']))
-        if asmt:
-            return asmt.remote_path
-        return ""
     def local_segment_exists(self):
         return os.path.isfile(self.local_path())
     def provision_local_segment(self, schema_sql):
@@ -281,12 +275,13 @@ class HostRegistry(object):
     def commit_assignments(self):
         self.assignment_queue.commit()
     def segments_for_host(self, host):
+        locks = Lock.host_locks(self.rethinker, host)
+        segments = {lock.segment: Segment(segment_id=lock.segment, size=0, rethinker=self.rethinker, services=self.services, registry=self) for lock in locks}
         assignments = Assignment.host_assignments(self.rethinker, host)
-        segments = [Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self) for asmt in assignments]
-        locks = Lock.host_locks(self.rethinker, host) # TODO: does this need deduplication with the above? We are trading a little overhead for lower complexity...
-        segments += [Segment(segment_id=lock.segment, size=0, rethinker=self.rethinker, services=self.services, registry=self) for lock in locks]
+        for asmt in assignments:
+            segments[asmt.segment] = Segment(segment_id=asmt.segment, size=asmt.bytes, rethinker=self.rethinker, services=self.services, registry=self, remote_path=asmt.remote_path)
         logging.info('Checked for segments assigned to %s: Found %s segment(s)' % (host, len(segments)))
-        return segments
+        return list(segments.values())
 
 # Base class, not intended for use.
 class SyncController:
@@ -316,6 +311,8 @@ class SyncController:
 
         self.local_data = settings['LOCAL_DATA']
         self.storage_in_bytes = settings['STORAGE_IN_BYTES']
+    def start(self):
+        pass
     def check_config(self):
         raise Exception('Not Implemented')
     def get_segment_file_list(self):
@@ -323,8 +320,10 @@ class SyncController:
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         return snakebite_client.ls([settings['HDFS_PATH']])
     def get_segment_file_size(self, segment):
+        if not segment.remote_path:
+            raise Exception('segment %r has remote_path=%r' % (segment.id, segment.remote_path))
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-        sizes = [file['length'] for file in snakebite_client.ls([segment.remote_path()])]
+        sizes = [file['length'] for file in snakebite_client.ls([segment.remote_path])]
         if len(sizes) > 1:
             raise Exception('Received more than one file listing.')
         return sizes[0]
@@ -418,7 +417,8 @@ class MasterSyncController(SyncController):
         # the keys are node names, the values are array indices for the hash_rings variable (below)
         host_ring_mapping = Assignment.load(self.rethinker, "ring-assignments")
         if not host_ring_mapping:
-            host_ring_mapping = Assignment(self.rethinker, { "id": "ring-assignments" })
+            host_ring_mapping = Assignment(self.rethinker, {})
+            host_ring_mapping.id = "ring-assignments"
 
         host_weights = {host['node']: self.registry.total_bytes_for_node(host['node'])
                         for host in self.registry.get_hosts()}
@@ -490,7 +490,7 @@ class MasterSyncController(SyncController):
                                                         'node': assigned_node,
                                                         'segment': segment.id,
                                                         'assigned_on': r.now(),
-                                                        'remote_path': segment.remote_path(),
+                                                        'remote_path': segment.remote_path,
                                                         'bytes': segment.size }))
                     ring_assignments[dict_key]['node'] = assigned_node
                     ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
@@ -586,6 +586,27 @@ class LocalSyncController(SyncController):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.hostname = settings['HOSTNAME']
+        self.read_id_tmpl = 'trough-read:%s:%%s' % self.hostname
+        self.write_id_tmpl = 'trough-write:%s:%%s' % self.hostname
+        self.healthy_service_ids = set()
+
+    def start(self):
+        th = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
+        th.start()
+
+    def heartbeat_periodically_forever(self):
+        while True:
+            start = time.time()
+            healthy_service_ids = self.periodic_heartbeat()
+            elapsed =  time.time() - start
+            logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
+            time.sleep(self.sync_loop_timing - elapsed)
+
+    def periodic_heartbeat(self):
+        self.heartbeat()
+        healthy_service_ids = list(self.healthy_service_ids)
+        self.registry.bulk_heartbeat(healthy_service_ids)
+        return healthy_service_ids
 
     def check_config(self):
         try:
@@ -596,38 +617,20 @@ class LocalSyncController(SyncController):
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
 
-    # def check_local_segment_is_fresh(self, segment):
-    #     logging.info('Checking that segment %s is "fresh" in reference to HDFS.' % (segment.id,))
-    #     try:
-    #         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-    #         listing = snakebite_client.ls([segment.remote_path()])
-    #         listing = [item for item in listing]
-    #         remote_mtime = listing[0]['modification_time'] / 1000
-    #         local_mtime = os.path.getmtime(segment.local_path())
-    #         if remote_mtime > local_mtime:
-    #             logging.info('HDFS version (mtime: %s) is newer for segment %s (mtime: %s). Segment is "stale"' % (remote_mtime, segment.id, local_mtime))
-    #             return False
-    #         logging.info('Local copy is "fresh" for segment %s.' % (segment.id,))
-    #         return True
-    #     except Exception as e:
-    #         logging.warning('Exception "%s" occurred while checking freshness for segment %s' % (e, segment.id))
-    #     logging.warning('Segment %s considered "stale" with reference to HDFS version.' % segment.id)
-    #     return False
-
     def copy_segment_from_hdfs(self, segment):
-        logging.info('copying segment %s from HDFS...' % segment.id)
-        source = [segment.remote_path()]
+        logging.debug('copying segment %r from HDFS path %r...', segment.id, segment.remote_path)
+        assert segment.remote_path
+        source = [segment.remote_path]
         destination = self.local_data
         # delete local file if it exists, otherwise surpress error
         with contextlib.suppress(FileNotFoundError):
             os.remove(segment.local_path())
-        logging.info('running snakebite.Client.copyToLocal(%s, %s)' % (source, destination))
+        logging.debug('running snakebite.Client.copyToLocal(%r, %r)', source, destination)
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         for f in snakebite_client.copyToLocal(source, destination):
             if f.get('error'):
-                logging.error('Error during HDFS copy: %s' % f['error'])
-                raise Exception('Copying HDFS file %s to local destination %s produced an error: "%s"' % (source, destination, f['error']))
-            logging.info('copied %s' % f)
+                raise Exception('Copying HDFS file %r to local destination %r produced an error: %r' % (source, destination, f['error']))
+            logging.debug('copied %s' % f)
             return True
 
     def heartbeat(self):
@@ -646,80 +649,118 @@ class LocalSyncController(SyncController):
             self.services.unregister(writable_copy.get('id'))
         write_lock.release()
 
-    def segment_name_from_path(self, path):
+    def segment_id_from_path(self, path):
         return path.split("/")[-1].replace('.sqlite', '')
 
-    def sync_segments(self):
+    def sync(self):
         '''
-        1. make a list of segment filenames assigned to this node
-        2. make a list of remote segment file details as a hash table
-        3. maks a list of local segment file details as a hash table
-        4. for each item in the assignment list
-            a. check that the file exists locally
-            b. check that the local mtime is >= remote mtime
-            c. if either check fails, enqueue the segment
-            d. if both succeed, heartbeat (read and write if applicable)
-        5. for each item in the failure queue
-            a. copy the segment from HDFS
-            b. heartbeat
-            c. clean up write services
+        assignments = list of segments assigned to this node
+        local_segments = list of segments on local disk
+        remote_segments = list of segments in hdfs
+        segments_of_interest = set(assignments + local_segments)
+        write_locks = list of locks assigned to this node
+
+        for segment in self.healthy_service_ids:
+            if segment not in segments_of_interest:
+                discard write id from self.healthy_service_ids
+                discard read id from self.healthy_service_ids
+
+        for segment in segments_of_interest:
+            if segment exists locally and is newer than hdfs:
+                add read id to self.healthy_service_ids
+                if segment in write_locks:
+                    add write id to self.healthy_service_ids
+            else: # segment does not exist locally or is older than hdfs:
+                discard write id from self.healthy_service_ids
+                discard read id from self.healthy_service_ids
+                add to stale queue
+
+        for segment in stale_queue:
+            copy down from hdfs
+            add read id to self.healthy_service_ids
+            delete write lock from rethinkdb
         '''
-        # reset the TTL health check for this node. I still function!
-        self.heartbeat()
-        last_heartbeat = datetime.datetime.now()
-        assignments = self.registry.segments_for_host(self.hostname)
-        remote_listing = self.get_segment_file_list()
-        logging.info('assembling remote file modification times...')
-        remote_mtimes = { self.segment_name_from_path(file['path']): file['modification_time'] / 1000 for file in remote_listing }
+        logging.info('sync starting')
+        # { segment_id: Segment }
+        my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
+        remote_mtimes = {}  # { segment_id: mtime (long) }
+        try:
+            # iterator of dicts that look like this
+            # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
+            remote_listing = self.get_segment_file_list()
+            for file in remote_listing:
+                segment_id = self.segment_id_from_path(file['path'])
+                remote_mtimes[segment_id] = file['modification_time'] / 1000
+                segment = my_segments.get(segment_id)
+                if segment and segment.remote_path != file['path']:
+                    logging.warn('path of segment %r from Assignment differs from path found in hdfs %r',
+                                 segment_id, file['path'])
+        except Exception as e:
+            logging.error('Error while listing files from HDFS', exc_info=True)
+            logging.warning('PROCEEDING WITHOUT DATA FROM HDFS')
+        logging.info('found %r segments in hdfs', len(remote_mtimes))
+        # list of filenames
         local_listing = os.listdir(self.local_data)
-        logging.info('assembling local file modification times...')
+        # { segment_id: mtime }
         local_mtimes = {}
         for path in local_listing:
             try:
-                local_mtimes[self.segment_name_from_path(path)] = os.stat(os.path.join(self.local_data, path)).st_mtime
+                local_mtimes[self.segment_id_from_path(path)] = os.stat(os.path.join(self.local_data, path)).st_mtime
             except:
-                logging.warning('path %s appears to have moved during synchronization.')
+                logging.warning('%r gone since listing directory', path)
+        logging.info('found %r segments on local disk', len(local_mtimes))
+        # { segment_id: Lock }
         write_locks = { lock.segment: lock for lock in Lock.host_locks(self.rethinker, self.hostname) }
+        writable_segments_found = len([1 for lock in write_locks if local_mtimes.get(lock)])
+        logging.info('found %r writable segments on-disk and %r write locks in RethinkDB for host %r', writable_segments_found, len(write_locks), self.hostname)
+        # list of segment id
         stale_queue = []
-        healthy_ids = []
 
-        for segment in assignments:
-            exists = segment.id in local_mtimes
-            # TODO: what to do when remote copy is deleted?
-            matches_hdfs = local_mtimes.get(segment.id, -1) >= remote_mtimes.get(segment.id, 0)
-            if not exists or not matches_hdfs:
-                stale_queue.append(segment)
-                continue
-            if write_locks.get(segment.id):
-                write_id = 'trough-write:%s:%s' % (self.hostname, segment.id)
-                logging.info('adding bulk write heartbeat for service id %s ...' % (write_id))
-                healthy_ids.append(write_id)
-            read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
-            logging.info('adding bulk read heartbeat for service id %s...' % (read_id))
-            healthy_ids.append(read_id)
+        segments_of_interest = set()
+        segments_of_interest.update(my_segments.keys())
+        segments_of_interest.update(local_mtimes.keys())
 
-        self.registry.bulk_heartbeat(healthy_ids)
+        count = 0
+        for service_id in list(self.healthy_service_ids):
+            segment_id = service_id.split(':')[-1]
+            if segment_id not in segments_of_interest:
+                self.healthy_service_ids.discard(service_id)
+                logging.debug('discarded %r from healthy service ids because segment %r is gone from host %r', service_id, segment_id, self.hostname)
+                count += 1
+        logging.info('%r healthy service ids discarded on %r since last sync', count, self.hostname)
 
-        healthy_ids = []
-        for segment in stale_queue:
+        for segment_id in segments_of_interest:
+            if segment_id in local_mtimes and local_mtimes[segment_id] >= remote_mtimes.get(segment_id, 0):
+                if (self.read_id_tmpl % segment_id) not in self.healthy_service_ids:
+                    logging.debug('adding %r to healthy segment list', (self.read_id_tmpl % segment_id))
+                self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
+                if segment_id in write_locks:
+                    if (self.write_id_tmpl % segment_id) not in self.healthy_service_ids:
+                        logging.debug('adding %r to healthy segment list', (self.write_id_tmpl % segment_id))
+                    self.healthy_service_ids.add(self.write_id_tmpl % segment_id)
+            else: # segment does not exist locally or is older than hdfs
+                assert segment_id in my_segments # can't get here otherwise
+                self.healthy_service_ids.discard(self.read_id_tmpl % segment_id)
+                self.healthy_service_ids.discard(self.write_id_tmpl % segment_id)
+                stale_queue.append(segment_id)
+
+        for segment_id in sorted(stale_queue, reverse=True):
+            segment = my_segments[segment_id]
+            if segment_id in local_mtimes:
+                logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
+                             segment_id, datetime.datetime.fromtimestamp(local_mtimes[segment_id]),
+                             datetime.datetime.fromtimestamp(remote_mtimes[segment_id]))
+            else:
+                logging.info('copying new segment %r from hdfs', segment_id)
             try:
                 self.copy_segment_from_hdfs(segment)
-            except:
+            except Exception as e:
+                logging.error('Error during HDFS copy of segment %r', segment_id, exc_info=True)
                 continue
-            write_lock = segment.retrieve_write_lock()
-            if write_lock:
-                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS." % segment.id)
-                self.decommission_writable_segment(segment, write_lock)
-            read_id = 'trough-read:%s:%s' % (self.hostname, segment.id)
-            logging.info('adding bulk read heartbeat for refreshed segment with service id %s...' % (read_id))
-            healthy_ids.append(read_id)
-            if datetime.datetime.now() - datetime.timedelta(seconds=round(settings['SYNC_LOOP_TIMING'] * 2)) > last_heartbeat:
-                self.heartbeat()
-                last_heartbeat = datetime.datetime.now()
-                logging.info("copying down stale segments has exceeded 50% of the segments' lifetime. Copying will stop now, to allow services to check in.")
-                break # start the sync loop over, allowing all segments to check in as healthy
-        self.registry.bulk_heartbeat(healthy_ids)
-
+            self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
+            if segment_id in write_locks:
+                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
+                self.decommission_writable_segment(segment, write_locks[segment_id])
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
         # instantiate the segment

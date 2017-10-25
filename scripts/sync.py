@@ -15,6 +15,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     controller = trough.sync.get_controller(args.server)
+    controller.start()
     controller.check_config()
     while True:
         started = datetime.datetime.now()

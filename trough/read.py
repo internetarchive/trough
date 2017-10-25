@@ -74,11 +74,10 @@ class ReadServer:
             if write_lock and write_lock['node'] != settings['HOSTNAME']:
                 logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
                 return self.proxy_for_write_host(write_lock['node'], segment, query)
-
             cursor = self.execute_query(segment, query)
             self.start_response('200 OK', [('Content-Type','application/json')])
             return self.sql_result_json_iter(cursor)
-        except BaseException as e:
+        except Exception as e:
             logging.error('500 Server Error due to exception', exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]
