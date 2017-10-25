@@ -44,6 +44,21 @@ class ReadServer:
             cursor.close()
             cursor.connection.close()
 
+    def execute_query(self, segment, query):
+        '''Returns a cursor.'''
+        logging.info('Servicing request: {query}'.format(query=query))
+        # if the user sent more than one query, or the query is not a SELECT, raise an exception.
+        if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
+            raise Exception('Exactly one SELECT query per request, please.')
+        assert os.path.isfile(segment.local_path())
+
+        logging.info("Connecting to sqlite database: {segment}".format(segment=segment.local_path()))
+        connection = sqlite3.connect(segment.local_path())
+        trough.sync.setup_connection(connection)
+        cursor = connection.cursor()
+        cursor.execute(query.decode('utf-8'))
+        return cursor
+
     # uwsgi endpoint
     def __call__(self, env, start_response):
         self.start_response = start_response
@@ -60,18 +75,7 @@ class ReadServer:
                 logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
                 return self.proxy_for_write_host(write_lock['node'], segment, query)
 
-            logging.info('Servicing request: {query}'.format(query=query))
-            # if the user sent more than one query, or the query is not a SELECT, raise an exception.
-            if len(sqlparse.split(query)) != 1 or sqlparse.parse(query)[0].get_type() != 'SELECT':
-                raise Exception('Exactly one SELECT query per request, please.')
-            assert os.path.isfile(segment.local_path())
-
-            logging.info("Connecting to sqlite database: {segment}".format(segment=segment.local_path()))
-            connection = sqlite3.connect(segment.local_path())
-            trough.sync.setup_connection(connection)
-            cursor = connection.cursor()
-            cursor.execute(query.decode('utf-8'))
-
+            cursor = self.execute_query(segment, query)
             self.start_response('200 OK', [('Content-Type','application/json')])
             return self.sql_result_json_iter(cursor)
         except BaseException as e:

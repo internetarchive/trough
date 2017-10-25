@@ -143,7 +143,7 @@ class TestSegment(unittest.TestCase):
             size=100)
         if segment.local_segment_exists():
             os.remove(segment.local_path())
-        output = segment.provision_local_segment()
+        output = segment.provision_local_segment('')
         os.remove(segment.local_path())
 
 
@@ -344,7 +344,7 @@ class TestMasterSyncController(unittest.TestCase):
             'ttl': 999,
             'last_heartbeat': r.now(),
         }).run()
-        with self.assertRaisesRegex(Exception, 'Received response from local write provisioner: 500'):
+        with self.assertRaisesRegex(Exception, 'Received response 500:'):
             output = controller.provision_writable_segment('testsegment')
         self.assertEqual(u[3], 'http://example4:6112/provision')
         self.assertEqual(d[3]['segment'], 'testsegment')

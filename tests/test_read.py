@@ -28,7 +28,8 @@ class TestReadServer(unittest.TestCase):
         segment.local_path = lambda: database_file.name
 
         output = b""
-        for part in self.server.read(segment, b'SELECT * FROM "test";'):
+        for part in self.server.sql_result_json_iter(
+                self.server.execute_query(segment, b'SELECT * FROM "test";')):
             output += part
         output = json.loads(output.decode('utf-8'))
         database_file.close()
@@ -47,7 +48,8 @@ class TestReadServer(unittest.TestCase):
         segment = mock.Mock()
         segment.local_path = lambda: database_file.name
 
-        for part in self.server.read(segment, b'SELECT * FROM "test";'):
+        for part in self.server.sql_result_json_iter(
+                self.server.execute_query(segment, b'SELECT * FROM "test";')):
             output += part
         output = json.loads(output.decode('utf-8'))
         cursor.close()
@@ -78,6 +80,9 @@ class TestReadServer(unittest.TestCase):
             response = mock.Mock()
             response.headers = {"Content-Type": "application/json"}
             response.iter_content = lambda: (b"test", b"output")
+            response.status_code = 200
+            response.__enter__ = lambda *args, **kwargs: response
+            response.__exit__ = lambda *args, **kwargs: None
             return response
         requests.post = post
         consul = mock.Mock()
