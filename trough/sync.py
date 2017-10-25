@@ -739,7 +739,6 @@ class LocalSyncController(SyncController):
                         logging.debug('adding %r to healthy segment list', (self.write_id_tmpl % segment_id))
                     self.healthy_service_ids.add(self.write_id_tmpl % segment_id)
             else: # segment does not exist locally or is older than hdfs
-                assert segment_id in my_segments # can't get here otherwise
                 self.healthy_service_ids.discard(self.read_id_tmpl % segment_id)
                 self.healthy_service_ids.discard(self.write_id_tmpl % segment_id)
                 stale_queue.append(segment_id)
