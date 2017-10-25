@@ -399,7 +399,7 @@ class TestLocalSyncController(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
-            sync.ensure_tables(self.rethinker)
+            sync.init(self.rethinker)
             assert controller.healthy_service_ids == set()
             controller.sync()
             assert controller.healthy_service_ids == set()
@@ -426,7 +426,7 @@ class TestLocalSyncController(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
-            sync.ensure_tables(self.rethinker)
+            sync.init(self.rethinker)
             assert controller.healthy_service_ids == set()
             # make segment 4 a segment of interest
             with open(os.path.join(tmp_dir, '4.sqlite'), 'wb'):

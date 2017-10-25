@@ -841,22 +841,6 @@ class LocalSyncController(SyncController):
         response = requests.post(post_url, json={'segment': segment_id, 'schema': schema})
         return response
 
-    def sync(self):
-        '''
-        "local" mode:
-        - if not set up, 
-            - set myself up as a host for a consul service as a read or write host depending on settings.
-        - reset the countdown on my health check, if it exists
-        - query consul for the assignment list for my hostname
-            - check that we have a copy
-            - check that the copy we have is the same or newer than hdfs copy
-            - if either check fails:
-                - copy file down from hdfs
-                - set up a health check (TTL) for this segment, 2 * 'segment_timer'
-            - touch segment health check
-        '''
-        self.sync_segments()
-
     def collect_garbage(self):
         assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
         for item in os.listdir(self.local_data):
