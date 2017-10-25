@@ -612,9 +612,12 @@ class LocalSyncController(SyncController):
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
         logging.info('found %r segments assigned to host %r', len(my_segments), self.hostname)
-        # iterator of dicts that look like this
-        # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
-        remote_listing = self.get_segment_file_list()
+        try:
+            # iterator of dicts that look like this
+            # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
+            remote_listing = self.get_segment_file_list()
+        except Exception as e:
+            logging.error('Error while listing files from HDFS', exc_info=True)
         remote_mtimes = {}  # { segment_id: mtime (long) }
         for file in remote_listing:
             segment_id = self.segment_id_from_path(file['path'])
