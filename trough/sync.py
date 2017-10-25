@@ -526,7 +526,7 @@ class LocalSyncController(SyncController):
         while True:
             start = time.time()
             healthy_service_ids = self.periodic_heartbeat()
-            elapsed = start - time.time()
+            elapsed =  time.time() - start
             logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
             time.sleep(self.sync_loop_timing - elapsed)
 
