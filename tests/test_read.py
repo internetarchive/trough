@@ -1,5 +1,4 @@
 import os
-os.environ['TROUGH_LOG_LEVEL'] = 'ERROR'
 os.environ['TROUGH_SETTINGS'] = os.path.join(os.path.dirname(__file__), "test.conf")
 
 import unittest

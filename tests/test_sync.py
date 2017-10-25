@@ -1,5 +1,4 @@
 import os
-os.environ['TROUGH_LOG_LEVEL'] = 'ERROR'
 os.environ['TROUGH_SETTINGS'] = os.path.join(os.path.dirname(__file__), "test.conf")
 
 import unittest
@@ -16,6 +15,7 @@ import rethinkdb as r
 import random
 import string
 import tempfile
+import logging
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
 
@@ -420,13 +420,13 @@ class TestLocalSyncController(unittest.TestCase):
 
     @mock.patch("trough.sync.client")
     def test_sync_segment_freshness(self, snakebite):
-        self.rethinker.table('lock').delete().run()
-        self.rethinker.table('assignment').delete().run()
-        self.rethinker.table('services').delete().run()
+        sync.init(self.rethinker)
         with tempfile.TemporaryDirectory() as tmp_dir:
+            self.rethinker.table('lock').delete().run()
+            self.rethinker.table('assignment').delete().run()
+            self.rethinker.table('services').delete().run()
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
-            sync.init(self.rethinker)
             assert controller.healthy_service_ids == set()
             # make segment 4 a segment of interest
             with open(os.path.join(tmp_dir, '4.sqlite'), 'wb'):
@@ -457,7 +457,11 @@ class TestLocalSyncController(unittest.TestCase):
 
         # clean slate
         with tempfile.TemporaryDirectory() as tmp_dir:
+            self.rethinker.table('lock').delete().run()
+            self.rethinker.table('assignment').delete().run()
+            self.rethinker.table('services').delete().run()
             controller = self.make_fresh_controller()
+            controller.local_data = tmp_dir
             # create an assignment without a local segment
             assignment = sync.Assignment(self.rethinker, d={
                 'hash_ring': 'a', 'node': 'test01', 'segment': '5',
@@ -470,6 +474,37 @@ class TestLocalSyncController(unittest.TestCase):
             controller.sync()
             assert controller.healthy_service_ids == {'trough-read:test01:5'}
             assert list(self.rethinker.table('lock').run()) == []
+
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                yield {'length': 1024 * 1000, 'path': '/6.sqlite', 'modification_time': (time.time() + 1000000) * 1000}
+            def copyToLocal(*args, **kwargs):
+                return [{'error':''}]
+        snakebite.Client = C
+
+        # third case: not assigned, local file exists, is older than hdfs
+        # this corresponds to the situation where we have an out-of-date
+        # segment on disk that was probably a write segment before it was
+        # reassigned when it was pushed upstream
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.rethinker.table('lock').delete().run()
+            self.rethinker.table('assignment').delete().run()
+            self.rethinker.table('services').delete().run()
+            controller = self.make_fresh_controller()
+            controller.local_data = tmp_dir
+            # create a local segment without an assignment
+            with open(os.path.join(tmp_dir, '6.sqlite'), 'wb'):
+                pass
+            controller.healthy_service_ids.add('trough-write:test01:6')
+            controller.healthy_service_ids.add('trough-read:test01:6')
+            controller.sync()
+            assert controller.healthy_service_ids == set()
+
+    def test_hdfs_resiliency(self):
+        # TODO: actually test this
+        assert False
 
     def test_periodic_heartbeat(self):
         controller = self.make_fresh_controller()
