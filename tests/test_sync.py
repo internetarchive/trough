@@ -477,6 +477,10 @@ class TestLocalSyncController(unittest.TestCase):
             assert controller.healthy_service_ids == {'trough-read:test01:5'}
             assert list(self.rethinker.table('lock').run()) == []
 
+    def test_hdfs_resiliency(self):
+        # TODO: actually test this
+        assert False
+
     def test_periodic_heartbeat(self):
         controller = self.make_fresh_controller()
         controller.sync_loop_timing = 1
