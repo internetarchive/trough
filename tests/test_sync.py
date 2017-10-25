@@ -426,6 +426,9 @@ class TestLocalSyncController(unittest.TestCase):
 
     @mock.patch("trough.sync.client")
     def test_sync_segment_freshness(self, snakebite):
+        self.rethinker.table('lock').delete().run()
+        self.rethinker.table('assignment').delete().run()
+        self.rethinker.table('services').delete().run()
         with tempfile.TemporaryDirectory() as tmp_dir:
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
@@ -442,6 +445,7 @@ class TestLocalSyncController(unittest.TestCase):
             controller.sync()
             assert controller.healthy_service_ids == {'trough-read:test01:4', 'trough-write:test01:4'}
             locks = list(self.rethinker.table('lock').run())
+
             assert len(locks) == 1
             assert locks[0]['id'] == 'trough-write:test01:4'
 

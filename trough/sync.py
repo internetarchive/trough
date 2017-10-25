@@ -611,12 +611,11 @@ class LocalSyncController(SyncController):
         logging.info('sync starting')
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
-        logging.info('found %r segments assigned to host %r', len(my_segments), self.hostname)
+        remote_mtimes = {}  # { segment_id: mtime (long) }
         try:
             # iterator of dicts that look like this
             # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
             remote_listing = self.get_segment_file_list()
-            remote_mtimes = {}  # { segment_id: mtime (long) }
             for file in remote_listing:
                 segment_id = self.segment_id_from_path(file['path'])
                 remote_mtimes[segment_id] = file['modification_time'] / 1000
@@ -640,7 +639,8 @@ class LocalSyncController(SyncController):
         logging.info('found %r segments on local disk', len(local_mtimes))
         # { segment_id: Lock }
         write_locks = { lock.segment: lock for lock in Lock.host_locks(self.rethinker, self.hostname) }
-        logging.info('found %r write locks on local disk for host %r', len(write_locks), self.hostname)
+        writable_segments_found = len([1 for lock in write_locks if local_mtimes.get(lock)])
+        logging.info('found %r writable segments on-disk and %r write locks in RethinkDB for host %r', writable_segments_found, len(write_locks), self.hostname)
         # list of segment id
         stale_queue = []
 
@@ -668,7 +668,6 @@ class LocalSyncController(SyncController):
                     self.healthy_service_ids.add(self.write_id_tmpl % segment_id)
             else: # segment does not exist locally or is older than hdfs
                 assert segment_id in my_segments # can't get here otherwise
-                assert segment_id in remote_mtimes
                 self.healthy_service_ids.discard(self.read_id_tmpl % segment_id)
                 self.healthy_service_ids.discard(self.write_id_tmpl % segment_id)
                 stale_queue.append(segment_id)
