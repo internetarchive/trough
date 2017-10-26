@@ -473,7 +473,7 @@ class TestLocalSyncController(unittest.TestCase):
                 'hash_ring': 'a', 'node': 'test01', 'segment': '5',
                 'assigned_on': r.now(), 'remote_path': '/5.sqlite', 'bytes': 0})
             assignment.save()
-            lock = sync.Lock.acquire(self.rethinker, 'trough-write:test01:5', {'segment':'5'})
+            lock = sync.Lock.acquire(self.rethinker, 'write:lock:5', {'segment':'5'})
             assert len(list(self.rethinker.table('lock').run())) == 1
             controller.healthy_service_ids.add('trough-write:test01:5')
             controller.healthy_service_ids.add('trough-read:test01:5')

@@ -533,6 +533,7 @@ class LocalSyncController(SyncController):
 
     def periodic_heartbeat(self):
         self.heartbeat()
+        # make a copy for thread safety
         healthy_service_ids = list(self.healthy_service_ids)
         self.registry.bulk_heartbeat(healthy_service_ids)
         return healthy_service_ids
@@ -551,9 +552,6 @@ class LocalSyncController(SyncController):
         assert segment.remote_path
         source = [segment.remote_path]
         destination = self.local_data
-        # delete local file if it exists, otherwise surpress error
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(segment.local_path())
         logging.debug('running snakebite.Client.copyToLocal(%r, %r)', source, destination)
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
         for f in snakebite_client.copyToLocal(source, destination):
@@ -573,10 +571,10 @@ class LocalSyncController(SyncController):
 
     def decommission_writable_segment(self, segment, write_lock):
         logging.info('De-commissioning a writable segment: %s' % segment.id)
+        write_lock.release()
         writable_copy = segment.writable_copy()
         if writable_copy:
             self.services.unregister(writable_copy.get('id'))
-        write_lock.release()
 
     def segment_id_from_path(self, path):
         return path.split("/")[-1].replace('.sqlite', '')
@@ -620,13 +618,11 @@ class LocalSyncController(SyncController):
             for file in remote_listing:
                 segment_id = self.segment_id_from_path(file['path'])
                 remote_mtimes[segment_id] = file['modification_time'] / 1000
-                segment = my_segments.get(segment_id)
-                if segment and segment.remote_path != file['path']:
-                    logging.warn('path of segment %r from Assignment differs from path found in hdfs %r',
-                                 segment_id, file['path'])
+            hdfs_up = True
         except Exception as e:
             logging.error('Error while listing files from HDFS', exc_info=True)
             logging.warning('PROCEEDING WITHOUT DATA FROM HDFS')
+            hdfs_up = False
         logging.info('found %r segments in hdfs', len(remote_mtimes))
         # list of filenames
         local_listing = os.listdir(self.local_data)
@@ -672,6 +668,9 @@ class LocalSyncController(SyncController):
                 self.healthy_service_ids.discard(self.write_id_tmpl % segment_id)
                 stale_queue.append(segment_id)
 
+        if not hdfs_up:
+            return
+
         for segment_id in sorted(stale_queue, reverse=True):
             segment = my_segments.get(segment_id)
             if not segment:
@@ -688,7 +687,8 @@ class LocalSyncController(SyncController):
                 logging.error('Error during HDFS copy of segment %r', segment_id, exc_info=True)
                 continue
             self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
-            if segment_id in write_locks:
+            write_lock = segment.retrieve_write_lock()
+            if write_lock:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
                 self.decommission_writable_segment(segment, write_locks[segment_id])
 
