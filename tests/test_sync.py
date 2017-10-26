@@ -508,9 +508,58 @@ class TestLocalSyncController(unittest.TestCase):
             controller.sync()
             assert controller.healthy_service_ids == set()
 
-    def test_hdfs_resiliency(self):
-        # TODO: actually test this
-        assert False
+    @mock.patch("trough.sync.client")
+    def test_hdfs_resiliency(self, snakebite):
+        sync.ensure_tables(self.rethinker)
+        self.rethinker.table('lock').delete().run()
+        self.rethinker.table('assignment').delete().run()
+        self.rethinker.table('services').delete().run()
+        assignment = sync.Assignment(self.rethinker, d={
+            'hash_ring': 'a', 'node': 'test01', 'segment': '1',
+            'assigned_on': r.now(), 'remote_path': '/1.sqlite', 'bytes': 9})
+        assignment.save()
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                yield {'length': 1024 * 1000, 'path': '/1.sqlite', 'modification_time': (time.time() + 1000000) * 1000}
+            def copyToLocal(*args, **kwargs):
+                return [{'error':'There was a problem...'}]
+        snakebite.Client = C
+        controller = self.make_fresh_controller()
+        controller.sync()
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                yield {'length': 1024 * 1000, 'path': '/1.sqlite', 'modification_time': (time.time() + 1000000) * 1000}
+            def copyToLocal(*args, **kwargs):
+                def g():
+                    raise Exception("HDFS IS DOWN")
+                    yield 0
+                return g()
+        snakebite.Client = C
+        controller = self.make_fresh_controller()
+        controller.sync()
+        class C:
+            def __init__(*args, **kwargs):
+                pass
+            def ls(*args, **kwargs):
+                def g():
+                    raise Exception("HDFS IS DOWN")
+                    yield 0
+                return g()
+            def copyToLocal(*args, **kwargs):
+                def g():
+                    raise Exception("HDFS IS DOWN")
+                    yield 0
+                return g()
+        snakebite.Client = C
+        controller = self.make_fresh_controller()
+        controller.sync()
+        self.rethinker.table('lock').delete().run()
+        self.rethinker.table('assignment').delete().run()
+        self.rethinker.table('services').delete().run()
 
     def test_periodic_heartbeat(self):
         controller = self.make_fresh_controller()
