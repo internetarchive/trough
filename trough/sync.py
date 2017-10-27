@@ -18,6 +18,7 @@ import re
 import contextlib
 from uhashring import HashRing
 import threading
+import tempfile
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -551,13 +552,15 @@ class LocalSyncController(SyncController):
         logging.debug('copying segment %r from HDFS path %r...', segment.id, segment.remote_path)
         assert segment.remote_path
         source = [segment.remote_path]
-        destination = self.local_data
-        logging.debug('running snakebite.Client.copyToLocal(%r, %r)', source, destination)
+        tmp = tempfile.NamedTemporaryFile()
+        logging.debug('running snakebite.Client.copyToLocal(%r, %r)', source, tmp.name)
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-        for f in snakebite_client.copyToLocal(source, destination):
+        for f in snakebite_client.copyToLocal(source, tmp.name):
             if f.get('error'):
-                raise Exception('Copying HDFS file %r to local destination %r produced an error: %r' % (source, destination, f['error']))
-            logging.debug('copied %s' % f)
+                raise Exception('Copying HDFS file %r to %r produced an error: %r' % (source, tmp.name, f['error']))
+            logging.debug('copying from hdfs succeeded, moving %s to %s', tmp.name, segment.local_path())
+            # clobbers segment.local_path if it already exists, which is what we want
+            os.rename(tmp.name, segment.local_path())
             return True
 
     def heartbeat(self):
