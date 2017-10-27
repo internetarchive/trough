@@ -694,7 +694,7 @@ class LocalSyncController(SyncController):
             write_lock = segment.retrieve_write_lock()
             if write_lock:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
-                self.decommission_writable_segment(segment, write_locks[segment_id])
+                self.decommission_writable_segment(segment, write_lock)
 
     def provision_writable_segment(self, segment_id):
         # instantiate the segment
