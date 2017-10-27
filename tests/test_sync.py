@@ -377,8 +377,11 @@ class TestLocalSyncController(unittest.TestCase):
         class C:
             def __init__(*args, **kwargs):
                 pass
-            def copyToLocal(*args, **kwargs):
+            def copyToLocal(self, paths, dst, *args, **kwargs):
                 for result in results:
+                    if not result.get('error'):
+                        # create empty dest file
+                        with open(dst, 'wb') as f: pass
                     yield result
         snakebite.Client = C
         controller = self.make_fresh_controller()
@@ -457,7 +460,8 @@ class TestLocalSyncController(unittest.TestCase):
                 pass
             def ls(*args, **kwargs):
                 yield {'length': 1024 * 1000, 'path': '/5.sqlite', 'modification_time': 1}
-            def copyToLocal(*args, **kwargs):
+            def copyToLocal(self, paths, dst, *args, **kwargs):
+                with open(dst, 'wb') as f: pass
                 return [{'error':''}]
         snakebite.Client = C
 
@@ -486,7 +490,8 @@ class TestLocalSyncController(unittest.TestCase):
                 pass
             def ls(*args, **kwargs):
                 yield {'length': 1024 * 1000, 'path': '/6.sqlite', 'modification_time': (time.time() + 1000000) * 1000}
-            def copyToLocal(*args, **kwargs):
+            def copyToLocal(self, paths, dst, *args, **kwargs):
+                with open(dst, 'wb') as f: pass
                 return [{'error':''}]
         snakebite.Client = C
 
