@@ -5,10 +5,6 @@ import unittest
 from unittest import mock
 from trough import sync
 from trough.settings import settings
-import sqlite3
-from collections import defaultdict
-import threading
-import datetime
 import time
 import doublethink
 import rethinkdb as r
@@ -16,6 +12,8 @@ import random
 import string
 import tempfile
 import logging
+from hdfs3 import HDFileSystem
+import pytest
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
 
@@ -246,24 +244,31 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(output, True)
         output = controller.hold_election()
         self.assertEqual(output, True)
-    @mock.patch("trough.sync.client")
     def test_get_segment_file_list(self, snakebite):
-        class C:
-            def __init__(*args, **kwargs):
-                pass
-            def ls(*args, **kwargs):
-                yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
-        snakebite.Client = C
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
             services=self.services,
             registry=self.registry)
+        # populate some dirs/files
+        hdfs = HDFileSystem(host=controller.hdfs_host, port=controller.hdfs_port)
+        hdfs.touch(os.path.join(controller.hdfs_path, '0.txt'))
+        hdfs.touch(os.path.join(controller.hdfs_path, '1.sqlite'))
+        hdfs.mkdir(os.path.join(controller.hdfs_path, '2.dir'))
+        hdfs.touch(os.path.join(controller.hdfs_path, '3.txt'))
+        with hdfs.open(os.path.join(controller.hdfs_path, '4.sqlite'), 'wb', replication=1) as f:
+            f.write(b'some bytes')
+        hdfs.touch('/tmp/5.sqlite')
         listing = controller.get_segment_file_list()
-        called = False
-        for item in listing:
-            self.assertEqual(item['length'], 1024*1000)
-            called = True
-        self.assertTrue(called)
+        entry = next(listing)
+        assert entry['name'] == '/tmp/trough/1.sqlite'
+        assert entry['kind'] == 'file'
+        assert entry['size'] == 0
+        entry = next(listing)
+        assert entry['name'] == '/tmp/trough/4.sqlite'
+        assert entry['kind'] == 'file'
+        assert entry['size'] == 10
+        with pytest.raises(StopIteration):
+            next(listing)
     @mock.patch("trough.sync.client")
     def test_assign_segments(self, snakebite):
         class C:

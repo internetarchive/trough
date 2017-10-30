@@ -316,18 +316,18 @@ class SyncController:
         pass
     def check_config(self):
         raise Exception('Not Implemented')
+    def list_files_recursively(self, hdfs, path):
+        for entry in hdfs.ls(path, detail=True):
+            if entry['kind'] == 'directory':
+                for subentry in self.list_files_recursively(hdfs, entry['name']):
+                    yield subentry
+            else:
+                yield entry
     def get_segment_file_list(self):
-        logging.info('Getting segment list...')
-        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-        return snakebite_client.ls([settings['HDFS_PATH']])
-    def get_segment_file_size(self, segment):
-        if not segment.remote_path:
-            raise Exception('segment %r has remote_path=%r' % (segment.id, segment.remote_path))
-        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-        sizes = [file['length'] for file in snakebite_client.ls([segment.remote_path])]
-        if len(sizes) > 1:
-            raise Exception('Received more than one file listing.')
-        return sizes[0]
+        logging.info('Looking for *.sqlite in hdfs recursively under %s', self.hdfs_path)
+        hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
+        return (entry for entry in self.list_files_recursively(hdfs, self.hdfs_path)
+                if entry['name'].endswith('.sqlite'))
     def list_schemas(self):
         gen = self.rethinker.table(Schema.table)['id'].run()
         result = list(gen)
@@ -405,9 +405,9 @@ class MasterSyncController(SyncController):
         segments = []
         for file in segment_files:
             segment = Segment(
-                segment_id=file['path'].split('/')[-1].replace('.sqlite', ''),
-                size=file['length'],
-                remote_path=file['path'],
+                segment_id=file['name'].split('/')[-1].replace('.sqlite', ''),
+                size=file['size'],
+                remote_path=file['name'],
                 rethinker=self.rethinker,
                 services=self.services,
                 registry=self.registry)
