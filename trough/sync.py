@@ -677,7 +677,12 @@ class LocalSyncController(SyncController):
 
         for segment_id in sorted(stale_queue, reverse=True):
             segment = my_segments.get(segment_id)
-            if not segment:
+            if not segment or not segment.remote_path:
+                # There is a newer copy in hdfs but we are not assigned to
+                # serve it. Do not copy down the new segment and do not release
+                # the write lock. One of the assigned nodes will release the
+                # write lock after copying it down, ensuring there is no period
+                # of time when no one is serving the segment.
                 continue
             if segment_id in local_mtimes:
                 logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
