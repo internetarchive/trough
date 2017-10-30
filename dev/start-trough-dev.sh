@@ -18,6 +18,12 @@ set -x
 rethinkdb >>/tmp/rethinkdb.log 2>&1 &
 docker run --detach --rm --name=hadoop --publish=8020:8020 --publish=50070:50070 --publish=50010:50010 --publish=50020:50020 --publish=50075:50075 chalimartines/cdh5-pseudo-distributed && sleep 30
 
+# XXX mac-specific hack
+# https://docs.docker.com/docker-for-mac/networking/#use-cases-and-workarounds
+# see "I WANT TO CONNECT TO A CONTAINER FROM THE MAC" (you can't)
+hadoop_container_ip=$(docker exec -it hadoop ifconfig eth0 | egrep -o 'addr:[^ ]+' | awk -F: '{print $2}')
+sudo ifconfig lo0 alias $hadoop_container_ip
+
 $VIRTUAL_ENV/bin/sync.py >>/tmp/trough-sync-local.out 2>&1 &
 sleep 3.5
 python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; rr.db('trough_configuration').wait().run()"

@@ -16,3 +16,7 @@ pkill -f $VIRTUAL_ENV/bin/writer.py
 pkill -f $VIRTUAL_ENV/bin/sync.py
 pkill -f trough.wsgi.segment_manager:local
 pkill -f trough.wsgi.segment_manager:server
+
+# XXX see start-trough-dev.sh
+hadoop_container_ip=$(docker exec -it hadoop ifconfig eth0 | egrep -o 'addr:[^ ]+' | awk -F: '{print $2}')
+sudo ifconfig lo0 -alias $hadoop_container_ip
