@@ -316,17 +316,15 @@ class SyncController:
         pass
     def check_config(self):
         raise Exception('Not Implemented')
-    def list_files_recursively(self, hdfs, path):
+    def ls_r(self, hdfs, path):
         for entry in hdfs.ls(path, detail=True):
+            yield entry
             if entry['kind'] == 'directory':
-                for subentry in self.list_files_recursively(hdfs, entry['name']):
-                    yield subentry
-            else:
-                yield entry
+                yield from self.ls_r(hdfs, entry['name'])
     def get_segment_file_list(self):
         logging.info('Looking for *.sqlite in hdfs recursively under %s', self.hdfs_path)
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
-        return (entry for entry in self.list_files_recursively(hdfs, self.hdfs_path)
+        return (entry for entry in self.ls_r(hdfs, self.hdfs_path)
                 if entry['name'].endswith('.sqlite'))
     def list_schemas(self):
         gen = self.rethinker.table(Schema.table)['id'].run()
@@ -688,11 +686,11 @@ class LocalSyncController(SyncController):
         remote_mtimes = {}  # { segment_id: mtime (long) }
         try:
             # iterator of dicts that look like this
-            # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
+            # {'last_mod': 1509406266, 'replication': 0, 'block_size': 0, 'name': '//tmp', 'group': 'supergroup', 'last_access': 0, 'owner': 'hdfs', 'kind': 'directory', 'permissions': 1023, 'encryption_info': None, 'size': 0}
             remote_listing = self.get_segment_file_list()
             for file in remote_listing:
-                segment_id = self.segment_id_from_path(file['path'])
-                remote_mtimes[segment_id] = file['modification_time'] / 1000
+                segment_id = self.segment_id_from_path(file['name'])
+                remote_mtimes[segment_id] = file['last_mod']
             hdfs_up = True
         except Exception as e:
             logging.error('Error while listing files from HDFS', exc_info=True)
