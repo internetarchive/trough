@@ -39,8 +39,9 @@ def make_app(controller):
         - whether or not an upstream segment will be overwritten
 
     This endpoint will toggle a value on the write lock record, which will be consulted so that a segment cannot be promoted while a promotion is in progress. The current journal will be committed, and then the promotion will commence, and this URL will return its JSON document at that point. During promotion, the segment will be put into write-ahead mode, and put back into journal mode after promotion.'''
-        segment_id = flask.request.get_data(as_text=True)
-        return ujson.dumps(controller.promote_writable_segment_upstream(segment_id)) # TODO
+        post_json = ujson.loads(flask.request.get_data())
+        segment_id = post_json['segment']
+        return ujson.dumps(controller.promote_writable_segment_upstream(segment_id))
 
     @app.route('/schema', methods=['GET'])
     def list_schemas():

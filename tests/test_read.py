@@ -14,7 +14,6 @@ import doublethink
 class TestReadServer(unittest.TestCase):
     def setUp(self):
         self.server = trough.read.ReadServer()
-        self.server(mock.Mock, mock.Mock)
     def test_empty_read(self):
         database_file = NamedTemporaryFile()
         connection = sqlite3.connect(database_file.name)
@@ -89,7 +88,7 @@ class TestReadServer(unittest.TestCase):
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
         services = doublethink.ServiceRegistry(rethinker)
         segment = trough.sync.Segment(segment_id="TEST", rethinker=rethinker, services=services, registry=registry, size=0)
-        output = self.server.proxy_for_write_host('localhost', segment, "SELECT * FROM mock;")
+        output = self.server.proxy_for_write_host('localhost', segment, "SELECT * FROM mock;", start_response=lambda *args, **kwargs: None)
         self.assertEqual(list(output), [b"test", b"output"])
 
 if __name__ == '__main__':

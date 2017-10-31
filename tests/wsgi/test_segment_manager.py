@@ -5,6 +5,7 @@ from trough.settings import settings
 import doublethink
 import rethinkdb as r
 import requests # :-\ urllib3?
+import hdfs3
 
 @pytest.fixture(scope="module")
 def segment_manager_server():
@@ -246,9 +247,7 @@ def test_schemas(segment_manager_server):
     # XXX DELETE?
 
 def test_promotion(segment_manager_server):
-    from snakebite.client import Client
-
-    snakebite_client = Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    hdfs = hdfs3.HDFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
 
     result = segment_manager_server.get('/promote')
     assert result.status == '405 METHOD NOT ALLOWED'
@@ -256,27 +255,28 @@ def test_promotion(segment_manager_server):
     # provision a test segment for write
     result = segment_manager_server.post(
             '/provision', content_type='application/json',
-            data=ujson.dumps({'segment':'test_promote_segment'}))
+            data=ujson.dumps({'segment':'test_promotion'}))
     assert result.status_code == 200
     assert result.mimetype == 'application/json'
     result_bytes = b''.join(result.response)
     result_dict = ujson.loads(result_bytes)
-    assert result_dict['write_url'].endswith(':6222/?segment=test_promote_segment')
+    assert result_dict['write_url'].endswith(':6222/?segment=test_promotion')
     write_url = result_dict['write_url']
     byte_count = result_dict['size']
 
-    listing = snakebite_client.ls([settings['HDFS_PATH']])
-    listing_before_promotion = {item['path']: item['length'] for item in listing}
-    assert 'test_promote_segment.sqlite' not in listing_before_promotion
+    expected_remote_path = '%s/tes/test_promotion.sqlite' % settings['HDFS_PATH']
+    with pytest.raises(FileNotFoundError):
+        hdfs.ls(expected_remote_path, detail=True)
+
+    import pdb; pdb.set_trace()
 
     # now write to the segment and promote it to HDFS
     result = segment_manager_server.post(
             '/promote', content_type='application/json',
-            data=ujson.dumps({'segment': 'test_simple_promote_segment'}))
+            data=ujson.dumps({'segment': 'test_promotion'}))
     assert result.status_code == 200
     assert result.mimetype == 'text/plain'
-    assert b''.join(result.response).endswith(b':6222/?segment=test_simple_promote_segment')
+    assert b''.join(result.response).endswith(b':6222/?segment=test_promotion')
 
-    listing_after_promotion = {item['path']: item['length'] for item in snakebite_client.ls([settings['HDFS_PATH']])}
-    assert 'test_promote_segment.sqlite' in listing_after_promotion
+    hdfs.ls(expected_remote_path, detail=True)
     assert byte_count == listing_after_promotion.get(item['filename'])

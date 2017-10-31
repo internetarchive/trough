@@ -17,16 +17,17 @@ class ReadServer:
         self.registry = trough.sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         trough.sync.init(self.rethinker)
 
-    def proxy_for_write_host(self, node, segment, query):
+    def proxy_for_write_host(self, node, segment, query, start_response):
         # enforce that we are querying the correct database, send an explicit hostname.
         write_url = "http://{node}:{port}/?segment={segment}".format(node=node, segment=segment.id, port=settings['READ_PORT'])
         with requests.post(write_url, stream=True, data=query) as r:
             status_line = '{status_code} {reason}'.format(status_code=r.status_code, reason=r.reason)
             # headers [('Content-Type','application/json')]
             headers = [("Content-Type", r.headers['Content-Type'],)]
-            self.start_response(status_line, headers)
-            for chunk in r.iter_content():
-                yield chunk
+            start_response(status_line, headers)
+            return r.iter_content()
+            # for chunk in r.iter_content():
+            #     yield chunk
 
     def sql_result_json_iter(self, cursor):
         first = True
@@ -39,6 +40,8 @@ class ReadServer:
                 yield ujson.dumps(output, escape_forward_slashes=False).encode('utf-8')
                 first = False
             yield b"]\n"
+        except Exception as e:
+            logging.error('exception in middle of streaming response', exc_info=1)
         finally:
             # close the cursor 'finally', in case there is an Exception.
             cursor.close()
@@ -61,7 +64,6 @@ class ReadServer:
 
     # uwsgi endpoint
     def __call__(self, env, start_response):
-        self.start_response = start_response
         try:
             query_dict = urllib.parse.parse_qs(env['QUERY_STRING'])
             # use the ?segment= query string variable or the host string to figure out which sqlite database to talk to.
@@ -73,9 +75,17 @@ class ReadServer:
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['node'] != settings['HOSTNAME']:
                 logging.info('Found write lock for {segment}. Proxying {query} to {host}'.format(segment=segment.id, query=query, host=write_lock['node']))
-                return self.proxy_for_write_host(write_lock['node'], segment, query)
+                return self.proxy_for_write_host(write_lock['node'], segment, query, start_response)
+
+                ## # enforce that we are querying the correct database, send an explicit hostname.
+                ## write_url = "http://{node}:{port}/?segment={segment}".format(node=node, segment=segment.id, port=settings['READ_PORT'])
+                ## with requests.post(write_url, stream=True, data=query) as r:
+                ##     status_line = '{status_code} {reason}'.format(status_code=r.status_code, reason=r.reason)
+                ##     headers = [("Content-Type", r.headers['Content-Type'],)]
+                ##     start_response(status_line, headers)
+                ##     return r.iter_content()
             cursor = self.execute_query(segment, query)
-            self.start_response('200 OK', [('Content-Type','application/json')])
+            start_response('200 OK', [('Content-Type','application/json')])
             return self.sql_result_json_iter(cursor)
         except Exception as e:
             logging.error('500 Server Error due to exception', exc_info=True)
