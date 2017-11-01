@@ -200,7 +200,7 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS'](self.id)
         else:
             return settings['MINIMUM_ASSIGNMENTS']
-    def acquire_write_lock(self):
+    def new_write_lock(self):
         '''Raises exception if lock exists.'''
         return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={ "segment": self.id })
     def retrieve_write_lock(self):

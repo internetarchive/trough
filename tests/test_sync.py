@@ -90,7 +90,7 @@ class TestSegment(unittest.TestCase):
             size=100)
         output = segment.minimum_assignments()
         self.assertEqual(output, 2)
-    def test_acquire_write_lock(self):
+    def test_new_write_lock(self):
         lock = sync.Lock.load(self.rethinker, 'write:lock:123456')
         if lock:
             lock.release()
@@ -99,9 +99,9 @@ class TestSegment(unittest.TestCase):
             rethinker=self.rethinker,
             registry=self.registry,
             size=100)
-        lock = segment.acquire_write_lock()
+        lock = segment.new_write_lock()
         with self.assertRaises(Exception):
-            segment.acquire_write_lock()
+            segment.new_write_lock()
         lock.release()
     def test_retrieve_write_lock(self):
         lock = sync.Lock.load(self.rethinker, 'write:lock:123456')
@@ -112,7 +112,7 @@ class TestSegment(unittest.TestCase):
             rethinker=self.rethinker,
             registry=self.registry,
             size=100)
-        output = segment.acquire_write_lock()
+        output = segment.new_write_lock()
         lock = segment.retrieve_write_lock()
         self.assertEqual(lock["node"], settings['HOSTNAME'])
         self.assertIn("acquired_on", lock)
