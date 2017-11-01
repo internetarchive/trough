@@ -571,7 +571,8 @@ class MasterSyncController(SyncController):
 
         # forward the request downstream to actually perform the promotion
         post_url = 'http://%s:%s/promote' % (lock['node'], self.sync_local_port)
-        response = requests.post(post_url, json={'segment': segment_id})
+        json_data = {'segment': segment_id}
+        response = requests.post(post_url, json=)
         if response.status_code != 200:
             raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
         response_dict = ujson.loads(response.content)
