@@ -6,6 +6,10 @@ import doublethink
 import rethinkdb as r
 import requests # :-\ urllib3?
 import hdfs3
+import time
+import tempfile
+import os
+import sqlite3
 
 @pytest.fixture(scope="module")
 def segment_manager_server():
@@ -249,6 +253,9 @@ def test_schemas(segment_manager_server):
 def test_promotion(segment_manager_server):
     hdfs = hdfs3.HDFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
 
+    hdfs.rm(settings['HDFS_PATH'])
+    hdfs.mkdir(settings['HDFS_PATH'])
+
     result = segment_manager_server.get('/promote')
     assert result.status == '405 METHOD NOT ALLOWED'
 
@@ -262,21 +269,41 @@ def test_promotion(segment_manager_server):
     result_dict = ujson.loads(result_bytes)
     assert result_dict['write_url'].endswith(':6222/?segment=test_promotion')
     write_url = result_dict['write_url']
-    byte_count = result_dict['size']
 
+    # write something into the db
+    sql = ('create table foo (bar varchar(100));\n'
+           'insert into foo (bar) values ("testing segment promotion");\n')
+    response = requests.post(write_url, sql)
+    assert response.status_code == 200
+
+    # shouldn't be anything in hdfs yet...
     expected_remote_path = '%s/tes/test_promotion.sqlite' % settings['HDFS_PATH']
     with pytest.raises(FileNotFoundError):
         hdfs.ls(expected_remote_path, detail=True)
 
-    import pdb; pdb.set_trace()
-
     # now write to the segment and promote it to HDFS
+    before = time.time()
+    time.sleep(1.5)
     result = segment_manager_server.post(
             '/promote', content_type='application/json',
             data=ujson.dumps({'segment': 'test_promotion'}))
     assert result.status_code == 200
-    assert result.mimetype == 'text/plain'
-    assert b''.join(result.response).endswith(b':6222/?segment=test_promotion')
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'remote_path': expected_remote_path}
 
-    hdfs.ls(expected_remote_path, detail=True)
-    assert byte_count == listing_after_promotion.get(item['filename'])
+    # let's see if it's hdfs
+    listing_after_promotion = hdfs.ls(expected_remote_path, detail=True)
+    assert len(listing_after_promotion) == 1
+    assert listing_after_promotion[0]['last_mod'] > before
+
+    # grab the file from hdfs and check the content
+    # n.b. copy created by sqlitebck may have different size, sha1 etc from orig
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_copy = os.path.join(tmpdir, 'test_promotion.sqlite')
+        hdfs.get(expected_remote_path, local_copy)
+        conn = sqlite3.connect(local_copy)
+        cur = conn.execute('select * from foo')
+        assert cur.fetchall() == [('testing segment promotion',)]
+        conn.close()

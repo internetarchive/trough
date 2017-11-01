@@ -546,6 +546,7 @@ class MasterSyncController(SyncController):
             raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
         result_dict = ujson.loads(response.text)
         return result_dict
+
     def promote_writable_segment_upstream(self, segment_id):
         # this function should make a call to the downstream server that holds the write lock
 
@@ -571,7 +572,12 @@ class MasterSyncController(SyncController):
         # forward the request downstream to actually perform the promotion
         post_url = 'http://%s:%s/promote' % (lock['node'], self.sync_local_port)
         response = requests.post(post_url, json={'segment': segment_id})
-        return response
+        if response.status_code != 200:
+            raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
+        response_dict = ujson.loads(response.content)
+        if not 'remote_path' in response_dict:
+            logging.warning('response json from downstream does not have remote_path?? %r', response_dict)
+        return response_dict
 
 def validate_schema_sql(sql):
     '''
@@ -780,11 +786,12 @@ class LocalSyncController(SyncController):
             registry=self.registry,
             size=0)
         # get the current write lock if any # TODO: collapse the below into one query
-        logging.info('retrieving write lock for segment %r', segment_id)
         lock_data = segment.retrieve_write_lock()
-        if not lock_data:
-            logging.info('acquiring write lock for segment %r', segment_id)
-            lock_data = segment.acquire_write_lock()
+        if lock_data:
+            logging.info('retrieved existing write lock for segment %r', segment_id)
+        else:
+            lock_data = segment.new_write_lock()
+            logging.info('acquired new write lock for segment %r', segment_id)
 
         # TODO: spawn a thread for these?
         logging.info('heartbeating write service for segment %r', segment_id)
@@ -811,13 +818,13 @@ class LocalSyncController(SyncController):
                 raise Exception('no such schema id=%r' % schema_id)
             logging.info('provisioning local segment %r', segment_id)
             segment.provision_local_segment(schema.sql)
-        logging.info('finished provisioning writable segment %r', segment_id)
 
         result_dict = {
             'write_url': trough_write_status['url'],
             'size': os.path.getsize(segment.local_path()),
             'schema': schema_id,
         }
+        logging.info('finished provisioning writable segment %r', result_dict)
         return result_dict
 
     def do_segment_promotion(self, segment):
@@ -827,13 +834,12 @@ class LocalSyncController(SyncController):
         # unset the promotion flag on the write record
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
-            # source = sqlite3.connect(segment.local_path())
-            source = sqlite3.connect(':memory:')
-            # dest = sqlite3.connect(temp_file.name)
-            dest = sqlite3.connect(':memory:')
+            source = sqlite3.connect(segment.local_path())
+            dest = sqlite3.connect(temp_file.name)
             sqlitebck.copy(source, dest)
             source.close()
             dest.close()
+            hdfs.mkdir(os.path.dirname(segment.remote_path))
             hdfs.put(temp_file.name, segment.remote_path)
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
 
