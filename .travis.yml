@@ -24,10 +24,8 @@ before_install:
 - docker run -d --publish=28015:28015 rethinkdb
 - docker run -d --publish=8020:8020 --publish=50070:50070 --publish=50010:50010 --publish=50020:50020 --publish=50075:50075 chalimartines/cdh5-pseudo-distributed
 - sudo apt-get -y install libasn1-8-heimdal libc6 libcomerr2 libcurl3 libffi6 libgcc1 libgcrypt11 libgnutls26 libgpg-error0 libgsasl7 libgssapi3-heimdal libgssapi-krb5-2 libhcrypto4-heimdal libheimbase1-heimdal libheimntlm0-heimdal libhx509-5-heimdal libidn11 libk5crypto3 libkeyutils1 libkrb5-26-heimdal libkrb5-3 libkrb5support0 libldap-2.4-2 liblzma5 libntlm0 libp11-kit0 libroken18-heimdal librtmp0 libsasl2-2 libsqlite3-0 libssl1.0.0 libstdc++6 libtasn1-6 libuuid1 libwind0-heimdal libxml2 zlib1g
-- pwd
-- cd /tmp
 - curl -sSLvO https://github.com/nlevitt/libhdfs3-deb/raw/trusty/libhdfs3_1-1-trusty-x86_64.deb
-- dpkg -i libhdfs3_1-1-trusty-x86_64.deb
+- sudo dpkg -i libhdfs3_1-1-trusty-x86_64.deb
 install:
 - pip install git+https://github.com/jkafader/snakebite@feature/python3-version-string
 - pip install -e . --no-input --upgrade
