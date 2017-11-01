@@ -742,7 +742,7 @@ class LocalSyncController(SyncController):
     def collect_garbage(self):
         assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
         for item in os.listdir(self.local_data):
-            if item.split(".")[0] not in assignments:
+            if item.replace(".sqlite", "") not in assignments:
                 path = os.path.join(self.local_data, item)
                 logging.info("Deleting unassigned file: %s" % path)
                 os.remove(path)
