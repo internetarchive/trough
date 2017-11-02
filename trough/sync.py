@@ -17,6 +17,9 @@ import sqlite3
 import re
 import contextlib
 from uhashring import HashRing
+import ujson
+from hdfs3 import HDFileSystem
+import sqlitebck
 import threading
 import tempfile
 
@@ -36,6 +39,7 @@ def setup_connection(conn):
             logging.error('REGEXP(%r, %r)', expr, item, exc_info=True)
             raise
 
+    # TODO these next two functions are stupidly specific to archive-it
     def seed_crawled_status_filter(status_code):
         ''' convert crawler status codes to human-readable test '''
         try:
@@ -130,9 +134,21 @@ class Lock(doublethink.Document):
     def host_locks(cls, rr, host):
         return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="node").run())
 
-def ensure_tables(rethinker):
+class Schema(doublethink.Document):
+    pass
+
+def init(rethinker):
     Assignment.table_ensure(rethinker)
     Lock.table_ensure(rethinker)
+    Schema.table_ensure(rethinker)
+    default_schema = Schema.load(rethinker, 'default')
+    if not default_schema:
+        default_schema = Schema(rethinker, d={'sql':''})
+        default_schema.id = 'default'
+        logging.info('saving default schema %r', default_schema)
+        default_schema.save()
+    else:
+        logging.info('default schema already exists %r', default_schema)
     try:
         rethinker.table('services').index_create('segment').run()
         rethinker.table('services').index_wait('segment').run()
@@ -141,6 +157,9 @@ def ensure_tables(rethinker):
     except Exception as e:
         pass
 
+    snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    for d in snakebite_client.mkdir([settings['HDFS_PATH']], create_parent=True):
+        logging.info('created hdfs dir %r', d)
 
 class Segment(object):
     def __init__(self, segment_id, size, rethinker, services, registry, remote_path=None):
@@ -181,7 +200,7 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS'](self.id)
         else:
             return settings['MINIMUM_ASSIGNMENTS']
-    def acquire_write_lock(self):
+    def new_write_lock(self):
         '''Raises exception if lock exists.'''
         return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={ "segment": self.id })
     def retrieve_write_lock(self):
@@ -197,16 +216,15 @@ class Segment(object):
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def local_segment_exists(self):
         return os.path.isfile(self.local_path())
-    def provision_local_segment(self):
+    def provision_local_segment(self, schema_sql):
         connection = sqlite3.connect(self.local_path())
         setup_connection(connection)
         cursor = connection.cursor()
-        with open(settings['SEGMENT_INITIALIZATION_SQL'], 'r') as script:
-            query = script.read()
-            cursor.executescript(query)
+        cursor.executescript(schema_sql)
         cursor.close()
         connection.commit()
         connection.close()
+        logging.info('provisioned %s', self.local_path())
     def __repr__(self):
         return '<Segment:id=%r,local_path=%r>' % (self.id, self.local_path())
 
@@ -235,7 +253,7 @@ class HostRegistry(object):
         doc['ttl'] = ttl
         doc['load'] = os.getloadavg()[1] # load average over last 5 mins
         logging.info('Heartbeat: role[%s] node[%s] at IP %s:%s with ttl %s' % (pool, node, node, doc.get('port'), ttl))
-        self.services.heartbeat(doc)
+        return self.services.heartbeat(doc)
     def bulk_heartbeat(self, ids):
         self.rethinker.table('services').get_all(*ids).update({ 'last_heartbeat': r.now(), 'load': os.getloadavg()[1] }).run()
         # send a non-bulk heartbeat for each id we *didn't* just update
@@ -284,7 +302,8 @@ class SyncController:
         self.hdfs_port = settings['HDFS_PORT']
 
         self.election_cycle = settings['ELECTION_CYCLE']
-        self.sync_port = settings['SYNC_PORT']
+        self.sync_server_port = settings['SYNC_SERVER_PORT']
+        self.sync_local_port = settings['SYNC_LOCAL_PORT']
         self.read_port = settings['READ_PORT']
         self.write_port = settings['WRITE_PORT']
         self.sync_loop_timing = settings['SYNC_LOOP_TIMING']
@@ -298,18 +317,35 @@ class SyncController:
         pass
     def check_config(self):
         raise Exception('Not Implemented')
+    def ls_r(self, hdfs, path):
+        for entry in hdfs.ls(path, detail=True):
+            yield entry
+            if entry['kind'] == 'directory':
+                yield from self.ls_r(hdfs, entry['name'])
     def get_segment_file_list(self):
-        logging.info('Getting segment list...')
-        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-        return snakebite_client.ls([settings['HDFS_PATH']])
-    def get_segment_file_size(self, segment):
-        if not segment.remote_path:
-            raise Exception('segment %r has remote_path=%r' % (segment.id, segment.remote_path))
-        snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-        sizes = [file['length'] for file in snakebite_client.ls([segment.remote_path])]
-        if len(sizes) > 1:
-            raise Exception('Received more than one file listing.')
-        return sizes[0]
+        logging.info('Looking for *.sqlite in hdfs recursively under %s', self.hdfs_path)
+        hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
+        return (entry for entry in self.ls_r(hdfs, self.hdfs_path)
+                if entry['name'].endswith('.sqlite'))
+    def list_schemas(self):
+        gen = self.rethinker.table(Schema.table)['id'].run()
+        result = list(gen)
+        return result
+    def get_schema(self, id):
+        schema = Schema.load(self.rethinker, id)
+        return schema
+    def set_schema(self, id, sql):
+        validate_schema_sql(sql)
+        # create a document, insert/update it, overwriting document with id 'id'.
+        created = False
+        output = Schema.load(self.rethinker, id)
+        if not output:
+            output = Schema(self.rethinker, d={})
+            created = True
+        output.id = id
+        output.sql = sql
+        output.save()
+        return (output, created)
 
 # Master or "Server" mode synchronizer.
 class MasterSyncController(SyncController):
@@ -326,7 +362,7 @@ class MasterSyncController(SyncController):
             assert settings['ELECTION_CYCLE'] > 0, "ELECTION_CYCLE must be greater than zero. It governs the number of seconds in a sync master election period."
             assert settings['HOSTNAME'], "HOSTNAME must be set, or I can't figure out my own hostname."
             assert settings['EXTERNAL_IP'], "EXTERNAL_IP must be set. We need to know which IP to use."
-            assert settings['SYNC_PORT'], "SYNC_PORT must be set. We need to know the output port."
+            assert settings['SYNC_SERVER_PORT'], "SYNC_SERVER_PORT must be set. We need to know the output port."
             assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
@@ -336,8 +372,8 @@ class MasterSyncController(SyncController):
         candidate = {
             "id": "trough-sync-master",
             "node": self.hostname,
-            "port": self.sync_port,
-            "url": "http://%s:%s/" % (self.hostname, self.sync_port),
+            "port": self.sync_server_port,
+            "url": "http://%s:%s/" % (self.hostname, self.sync_server_port),
             "ttl": self.election_cycle + self.sync_loop_timing * 4,
         }
         sync_master = self.services.unique_service('trough-sync-master', candidate=candidate)
@@ -368,9 +404,9 @@ class MasterSyncController(SyncController):
         segments = []
         for file in segment_files:
             segment = Segment(
-                segment_id=file['path'].split('/')[-1].replace('.sqlite', ''),
-                size=file['length'],
-                remote_path=file['path'],
+                segment_id=file['name'].split('/')[-1].replace('.sqlite', ''),
+                size=file['size'],
+                remote_path=file['name'],
                 rethinker=self.rethinker,
                 services=self.services,
                 registry=self.registry)
@@ -484,7 +520,7 @@ class MasterSyncController(SyncController):
             else:
                 logging.info('not assigning segments because there are no trough workers!')
 
-    def provision_writable_segment(self, segment_id):
+    def provision_writable_segment(self, segment_id, schema_id='default'):
         # the query below implements this algorithm:
         # - look up a write lock for the passed-in segment
         # - if the write lock exists, return it. else:
@@ -503,13 +539,55 @@ class MasterSyncController(SyncController):
                         .order_by('load')[0].default({ })
                 )
             ).run()
-        # finally, if we have not retrieved a write lock, we need to talk to the local node.
-        if not assignment.get('id', '').startswith('write:lock'):
-            post_url = 'http://%s:%s/' % (assignment['node'], self.sync_port)
-            response = requests.post(post_url, segment_id)
-            if response.status_code != 200:
-                raise Exception('Received response from local write provisioner: %s: %s' % (response.status_code, response.text))
-        return "http://%s:%s/?segment=%s" % (assignment['node'], self.write_port, segment_id)
+        post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
+        json_data = {'segment': segment_id, 'schema': schema_id}
+        response = requests.post(post_url, json=json_data)
+        if response.status_code != 200:
+            raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
+        result_dict = ujson.loads(response.text)
+        return result_dict
+
+    def promote_writable_segment_upstream(self, segment_id):
+        # this function should make a call to the downstream server that holds the write lock
+
+        # Consider use of this module: https://github.com/husio/python-sqlite3-backup
+        # with pauses in between page copies to allow reads.
+        # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
+        # query below is an implementation of this algoritm:
+        # if a lock exists, insert a flag representing the promotion into it, if it doesn't return None
+
+        query = self.rethinker.table('lock')\
+            .get('write:lock:%s' % segment_id)\
+            .update({'under_promotion': True}, return_changes=True)
+        output = query.run()
+        try:
+            lock = output['changes'][0]['new_val']
+        except:
+            if output['unchanged'] > 0:
+                raise Exception("Segment %s is currently being copied upstream" % segment_id)
+            if output['skipped'] > 0:
+                raise Exception("Segment %s is not currently writable" % segment_id)
+            raise Exception("Unexpected result %r from rethinkdb query %r" % (output, query))
+
+        # forward the request downstream to actually perform the promotion
+        post_url = 'http://%s:%s/promote' % (lock['node'], self.sync_local_port)
+        json_data = {'segment': segment_id}
+        response = requests.post(post_url, json=json_data)
+        if response.status_code != 200:
+            raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
+        response_dict = ujson.loads(response.content)
+        if not 'remote_path' in response_dict:
+            logging.warning('response json from downstream does not have remote_path?? %r', response_dict)
+        return response_dict
+
+def validate_schema_sql(sql):
+    '''
+    Schema sql is considered valid if it runs without error in an empty sqlite
+    database.
+    '''
+    connection = sqlite3.connect(':memory:')
+    connection.executescript(sql) # may raise exception
+    connection.close()
 
 # Local mode synchronizer.
 class LocalSyncController(SyncController):
@@ -617,11 +695,11 @@ class LocalSyncController(SyncController):
         remote_mtimes = {}  # { segment_id: mtime (long) }
         try:
             # iterator of dicts that look like this
-            # {'group': u'supergroup', 'permission': 493, 'file_type': 'd', 'access_time': 0L, 'block_replication': 0, 'modification_time': 1367317326628L, 'length': 0L, 'blocksize': 0L, 'owner': u'wouter', 'path': '/source'}
+            # {'last_mod': 1509406266, 'replication': 0, 'block_size': 0, 'name': '//tmp', 'group': 'supergroup', 'last_access': 0, 'owner': 'hdfs', 'kind': 'directory', 'permissions': 1023, 'encryption_info': None, 'size': 0}
             remote_listing = self.get_segment_file_list()
             for file in remote_listing:
-                segment_id = self.segment_id_from_path(file['path'])
-                remote_mtimes[segment_id] = file['modification_time'] / 1000
+                segment_id = self.segment_id_from_path(file['name'])
+                remote_mtimes[segment_id] = file['last_mod']
             hdfs_up = True
         except Exception as e:
             logging.error('Error while listing files from HDFS', exc_info=True)
@@ -701,7 +779,7 @@ class LocalSyncController(SyncController):
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
                 self.decommission_writable_segment(segment, write_lock)
 
-    def provision_writable_segment(self, segment_id):
+    def provision_writable_segment(self, segment_id, schema_id='default'):
         # instantiate the segment
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
@@ -709,15 +787,16 @@ class LocalSyncController(SyncController):
             registry=self.registry,
             size=0)
         # get the current write lock if any # TODO: collapse the below into one query
-        logging.info('retrieving write lock for segment %r', segment_id)
         lock_data = segment.retrieve_write_lock()
-        if not lock_data:
-            logging.info('acquiring write lock for segment %r', segment_id)
-            lock_data = segment.acquire_write_lock()
+        if lock_data:
+            logging.info('retrieved existing write lock for segment %r', segment_id)
+        else:
+            lock_data = segment.new_write_lock()
+            logging.info('acquired new write lock for segment %r', segment_id)
 
         # TODO: spawn a thread for these?
         logging.info('heartbeating write service for segment %r', segment_id)
-        self.registry.heartbeat(pool='trough-write',
+        trough_write_status = self.registry.heartbeat(pool='trough-write',
             segment=segment_id,
             node=self.hostname,
             port=self.write_port,
@@ -735,9 +814,58 @@ class LocalSyncController(SyncController):
         # check that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
+            schema = self.get_schema(schema_id)
+            if not schema:
+                raise Exception('no such schema id=%r' % schema_id)
             logging.info('provisioning local segment %r', segment_id)
-            segment.provision_local_segment()
-        logging.info('finished provisioning writable segment %r', segment_id)
+            segment.provision_local_segment(schema.sql)
+
+        result_dict = {
+            'write_url': trough_write_status['url'],
+            'size': os.path.getsize(segment.local_path()),
+            'schema': schema_id,
+        }
+        logging.info('finished provisioning writable segment %r', result_dict)
+        return result_dict
+
+    def do_segment_promotion(self, segment):
+        import sqlitebck
+        # copy file to temporary location
+        # spawn an HDFS process to put the temporary file upstream
+        # unset the promotion flag on the write record
+        hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
+        with tempfile.NamedTemporaryFile() as temp_file:
+            source = sqlite3.connect(segment.local_path())
+            dest = sqlite3.connect(temp_file.name)
+            sqlitebck.copy(source, dest)
+            source.close()
+            dest.close()
+            hdfs.mkdir(os.path.dirname(segment.remote_path))
+            hdfs.put(temp_file.name, segment.remote_path)
+            logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
+
+    def promote_writable_segment_upstream(self, segment_id):
+        # Consider use of this module: https://github.com/husio/python-sqlite3-backup
+        # with pauses in between page copies to allow reads.
+        # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
+        # forward the request downstream to actually perform the promotion
+
+        # retrieve write lock, ensuring that the segment is under promotion
+        # spawn a thread to perform the promotion
+
+        # return a response that the promotion is in progress
+        write_lock = self.rethinker.table('lock').get('write:lock:%s' % segment_id).run()
+        try:
+            assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
+            remote_path = assignment.remote_path
+        except r.errors.ReqlNonExistenceError:
+            remote_path = os.path.join(self.hdfs_path, segment_id[:3], '%s.sqlite' % segment_id)
+        segment = Segment(
+                segment_id, size=-1, rethinker=self.rethinker,
+                services=self.services, registry=self.registry,
+                remote_path=remote_path)
+        self.do_segment_promotion(segment)
+        return {'remote_path': remote_path}
 
     def collect_garbage(self):
         assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
@@ -755,7 +883,7 @@ def get_controller(server_mode):
     rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
     services = doublethink.ServiceRegistry(rethinker)
     registry = HostRegistry(rethinker=rethinker, services=services)
-    ensure_tables(rethinker)
+    init(rethinker)
     logging.info('Connecting to HDFS on: %s:%s' % (settings['HDFS_HOST'], settings['HDFS_PORT']))
 
     if server_mode:

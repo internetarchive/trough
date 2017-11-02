@@ -38,12 +38,13 @@ settings = {
     'WRITE_THREADS': '5',
     'ELECTION_CYCLE': 10, # how frequently should I hold an election for sync master server? In seconds
     # 'ROLE': 'READ', # READ, WRITE, SYNCHRONIZE, CONSUL # commented: might not need this, handle via ansible/docker?
-    'HDFS_PATH': None, # /ait/prod/trough/
-    'HDFS_HOST': None,
-    'HDFS_PORT': None,
+    'HDFS_PATH': '/tmp/trough', # /ait/prod/trough/
+    'HDFS_HOST': 'localhost',
+    'HDFS_PORT': 8020,
     'READ_PORT': 6444,
     'WRITE_PORT': 6222,
-    'SYNC_PORT': 6111,
+    'SYNC_SERVER_PORT': 6111,
+    'SYNC_LOCAL_PORT': 6112,
     'EXTERNAL_IP': None,
     'HOST_CHECK_WAIT_PERIOD': 5, # if the sync master starts before anything else, poll for hosts to assign to every N seconds.
     'STORAGE_IN_BYTES': None, # this will be set later, if it is not set in settings.yml
@@ -55,7 +56,6 @@ settings = {
     'MINIMUM_ASSIGNMENTS': 2,
     'MAXIMUM_ASSIGNMENTS': 2,
     'LOG_LEVEL': 'INFO',
-    'SEGMENT_INITIALIZATION_SQL': os.path.join(os.path.dirname(__file__), os.path.pardir, "conf", "intialize.sql"),
     'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
 }
 

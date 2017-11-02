@@ -14,7 +14,6 @@ import doublethink
 class TestReadServer(unittest.TestCase):
     def setUp(self):
         self.server = trough.read.ReadServer()
-        self.server(mock.Mock, mock.Mock)
     def test_empty_read(self):
         database_file = NamedTemporaryFile()
         connection = sqlite3.connect(database_file.name)
@@ -27,7 +26,8 @@ class TestReadServer(unittest.TestCase):
         segment.local_path = lambda: database_file.name
 
         output = b""
-        for part in self.server.read(segment, b'SELECT * FROM "test";'):
+        for part in self.server.sql_result_json_iter(
+                self.server.execute_query(segment, b'SELECT * FROM "test";')):
             output += part
         output = json.loads(output.decode('utf-8'))
         database_file.close()
@@ -46,7 +46,8 @@ class TestReadServer(unittest.TestCase):
         segment = mock.Mock()
         segment.local_path = lambda: database_file.name
 
-        for part in self.server.read(segment, b'SELECT * FROM "test";'):
+        for part in self.server.sql_result_json_iter(
+                self.server.execute_query(segment, b'SELECT * FROM "test";')):
             output += part
         output = json.loads(output.decode('utf-8'))
         cursor.close()
@@ -77,6 +78,9 @@ class TestReadServer(unittest.TestCase):
             response = mock.Mock()
             response.headers = {"Content-Type": "application/json"}
             response.iter_content = lambda: (b"test", b"output")
+            response.status_code = 200
+            response.__enter__ = lambda *args, **kwargs: response
+            response.__exit__ = lambda *args, **kwargs: None
             return response
         requests.post = post
         consul = mock.Mock()
@@ -84,7 +88,7 @@ class TestReadServer(unittest.TestCase):
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
         services = doublethink.ServiceRegistry(rethinker)
         segment = trough.sync.Segment(segment_id="TEST", rethinker=rethinker, services=services, registry=registry, size=0)
-        output = self.server.proxy_for_write_host('localhost', segment, "SELECT * FROM mock;")
+        output = self.server.proxy_for_write_host('localhost', segment, "SELECT * FROM mock;", start_response=lambda *args, **kwargs: None)
         self.assertEqual(list(output), [b"test", b"output"])
 
 if __name__ == '__main__':
