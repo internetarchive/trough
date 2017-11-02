@@ -742,6 +742,8 @@ class LocalSyncController(SyncController):
     def collect_garbage(self):
         assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
         for item in os.listdir(self.local_data):
+            if item.endswith('_COPYING_') or item.endswith("journal"):
+                continue
             if item.replace(".sqlite", "") not in assignments:
                 path = os.path.join(self.local_data, item)
                 logging.info("Deleting unassigned file: %s" % path)
