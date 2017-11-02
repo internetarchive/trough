@@ -46,6 +46,7 @@
   - libwind0-heimdal
   - libxml2
   - zlib1g
+  - libsqlite3-dev
 
 # get recent virtualenv, which bundles a recent pip
 - command: mktemp -d
