@@ -98,4 +98,5 @@
 - name: Install libhdfs3
   become: true
   apt:
-    deb: https://github.com/jkafader/libhdfs3-deb/raw/master/libhdfs3_1-1.deb
+    deb: https://github.com/jkafader/libhdfs3-deb/raw/master/libhdfs3_1-1-xenial-x86_64.deb
+
