@@ -4,7 +4,10 @@ import glob
 setup(
     name='Trough',
     version='0.1dev1',
-    packages=['trough',],
+    packages=[
+        'trough',
+        'trough.wsgi',
+    ],
     maintainer='James Kafader',
     maintainer_email='jkafader@archive.org',
     url='https://github.com/internetarchive/trough',
