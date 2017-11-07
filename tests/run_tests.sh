@@ -14,6 +14,7 @@ do
                 && (cd /trough && git diff) | patch -p1 \
                 && virtualenv -p $python /tmp/venv \
                 && source /tmp/venv/bin/activate \
-                && pip install -e /trough --no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/ \
-                && python -m unittest discover"
+                && pip install pytest git+https://github.com/jkafader/snakebite@feature/python3-version-string -e /trough --no-input --upgrade \
+                && py.test -v tests \
+                "
 done
