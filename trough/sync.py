@@ -527,9 +527,12 @@ class LocalSyncController(SyncController):
     def heartbeat_periodically_forever(self):
         while True:
             start = time.time()
-            healthy_service_ids = self.periodic_heartbeat()
-            elapsed =  time.time() - start
-            logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
+            try:
+                healthy_service_ids = self.periodic_heartbeat()
+                elapsed =  time.time() - start
+                logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
+            except:
+                logging.error('problem sending heartbeat', exc_info=True)
             time.sleep(self.sync_loop_timing - elapsed)
 
     def periodic_heartbeat(self):
