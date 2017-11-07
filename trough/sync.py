@@ -611,7 +611,6 @@ class LocalSyncController(SyncController):
             add read id to self.healthy_service_ids
             delete write lock from rethinkdb
         '''
-        assert self.heartbeat_thread.is_alive()
         logging.info('sync starting')
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
