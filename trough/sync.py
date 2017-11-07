@@ -694,6 +694,7 @@ class LocalSyncController(SyncController):
             delete write lock from rethinkdb
         '''
         assert self.heartbeat_thread.is_alive()
+        start = time.time()
         logging.info('sync starting')
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
@@ -758,8 +759,14 @@ class LocalSyncController(SyncController):
         if not hdfs_up:
             return
 
+        num_processed = 0
         for segment_id in sorted(stale_queue, reverse=True):
+            elapsed = time.time() - start
+            if elapsed > self.sync_loop_timing:
+                logging.debug('sync loop timed out after %0.1f sec', elapsed)
+                break
             segment = my_segments.get(segment_id)
+            num_processed += 1
             if not segment or not segment.remote_path:
                 # There is a newer copy in hdfs but we are not assigned to
                 # serve it. Do not copy down the new segment and do not release
@@ -783,6 +790,7 @@ class LocalSyncController(SyncController):
             if write_lock:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
                 self.decommission_writable_segment(segment, write_lock)
+        logging.info('processed %s of %s stale segments in %0.1f sec', num_processed, len(stale_queue), time.time() - start)
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
         # instantiate the segment
