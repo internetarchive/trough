@@ -519,10 +519,10 @@ class LocalSyncController(SyncController):
         self.read_id_tmpl = 'trough-read:%s:%%s' % self.hostname
         self.write_id_tmpl = 'trough-write:%s:%%s' % self.hostname
         self.healthy_service_ids = set()
+        self.heartbeat_thread = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
 
     def start(self):
-        th = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
-        th.start()
+        self.heartbeat_thread.start()
 
     def heartbeat_periodically_forever(self):
         while True:

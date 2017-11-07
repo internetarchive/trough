@@ -18,6 +18,7 @@ if __name__ == '__main__':
     controller.start()
     controller.check_config()
     while True:
+        assert controller.heartbeat_thread.is_alive()
         started = datetime.datetime.now()
         controller.sync()
         loop_duration = datetime.datetime.now() - started
