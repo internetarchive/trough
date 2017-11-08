@@ -434,21 +434,23 @@ class MasterSyncController(SyncController):
                     last_heartbeat = datetime.datetime.now()
                 else:
                     return False
-            logging.info("Assigning segment [%s]" % (segment.id))
+            logging.debug("Assigning segment [%s]", segment.id)
             # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
             assigned_rings = random.sample(hash_rings, segment.minimum_assignments())
-            logging.info("Segment [%s] will use rings %s" % (segment.id, [s.id for s in assigned_rings]))
+            logging.debug("Segment [%s] will use rings %s", segment.id, [s.id for s in assigned_rings])
+            changed_assignments = 0
             for ring in assigned_rings:
                 # get the node for the key from hash ring, updating or creating assignments from corresponding entry in 'ring_assignments' as necessary
                 assigned_node = ring.get_node(segment.id)
                 dict_key = "%s-%s" % (ring.id, segment.id)
                 assignment = ring_assignments.get(dict_key)
-                logging.info("Current assignment: '%s' New assignment: '%s'" % (assignment.node if assignment else None, assigned_node))
+                logging.debug("Current assignment: '%s' New assignment: '%s'", assignment.node if assignment else None, assigned_node)
                 if assignment is None or assignment.node != assigned_node:
-                    logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]" % (segment.id, assigned_node, ring.id))
+                    changed_assignments += 1
+                    logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]", segment.id, assigned_node, ring.id)
                     if assignment:
-                        logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)" % (assignment.node, segment.id, assignment))
+                        logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
                         assignment.unassign()
                         del assignment['id']
                     ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
@@ -461,7 +463,8 @@ class MasterSyncController(SyncController):
                     ring_assignments[dict_key]['node'] = assigned_node
                     ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
                     self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
-        logging.info("Committing %s assignments" % (self.registry.assignment_queue.length()))
+        logging.info("%s assignments changed during this sync cycle.", changed_assignments)
+        logging.info("Committing %s assignments", self.registry.assignment_queue.length())
         # commit assignments that were created or updated
         self.registry.commit_assignments()
 
