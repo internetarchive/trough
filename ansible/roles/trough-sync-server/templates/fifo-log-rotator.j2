@@ -2,7 +2,8 @@
 
 /var/log/{{item.name}}.log {
     rotate 10
-    size 5G
+    maxsize 1G
+    size 200M
     postrotate
         svc -t /etc/service/{{item.name}}/log
     endscript
