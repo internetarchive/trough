@@ -298,6 +298,8 @@ class SyncController:
         pass
     def check_config(self):
         raise Exception('Not Implemented')
+    def check_health(self):
+        pass
     def get_segment_file_list(self):
         logging.info('Getting segment list...')
         snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
@@ -551,6 +553,9 @@ class LocalSyncController(SyncController):
             assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
+
+    def check_health(self):
+        assert self.heartbeat_thread.is_alive()
 
     def copy_segment_from_hdfs(self, segment):
         logging.debug('copying segment %r from HDFS path %r...', segment.id, segment.remote_path)
