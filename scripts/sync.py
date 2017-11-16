@@ -18,6 +18,7 @@ if __name__ == '__main__':
     controller.start()
     controller.check_config()
     while True:
+        controller.check_health()
         started = datetime.datetime.now()
         controller.sync()
         loop_duration = datetime.datetime.now() - started

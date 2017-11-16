@@ -322,6 +322,8 @@ class SyncController:
             yield entry
             if entry['kind'] == 'directory':
                 yield from self.ls_r(hdfs, entry['name'])
+    def check_health(self):
+        pass
     def get_segment_file_list(self):
         logging.info('Looking for *.sqlite in hdfs recursively under %s', self.hdfs_path)
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
@@ -468,21 +470,23 @@ class MasterSyncController(SyncController):
                     last_heartbeat = datetime.datetime.now()
                 else:
                     return False
-            logging.info("Assigning segment [%s]" % (segment.id))
+            logging.debug("Assigning segment [%s]", segment.id)
             # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
             assigned_rings = random.sample(hash_rings, segment.minimum_assignments())
-            logging.info("Segment [%s] will use rings %s" % (segment.id, [s.id for s in assigned_rings]))
+            logging.debug("Segment [%s] will use rings %s", segment.id, [s.id for s in assigned_rings])
+            changed_assignments = 0
             for ring in assigned_rings:
                 # get the node for the key from hash ring, updating or creating assignments from corresponding entry in 'ring_assignments' as necessary
                 assigned_node = ring.get_node(segment.id)
                 dict_key = "%s-%s" % (ring.id, segment.id)
                 assignment = ring_assignments.get(dict_key)
-                logging.info("Current assignment: '%s' New assignment: '%s'" % (assignment.node if assignment else None, assigned_node))
+                logging.debug("Current assignment: '%s' New assignment: '%s'", assignment.node if assignment else None, assigned_node)
                 if assignment is None or assignment.node != assigned_node:
-                    logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]" % (segment.id, assigned_node, ring.id))
+                    changed_assignments += 1
+                    logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]", segment.id, assigned_node, ring.id)
                     if assignment:
-                        logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)" % (assignment.node, segment.id, assignment))
+                        logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
                         assignment.unassign()
                         del assignment['id']
                     ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
@@ -495,7 +499,8 @@ class MasterSyncController(SyncController):
                     ring_assignments[dict_key]['node'] = assigned_node
                     ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
                     self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
-        logging.info("Committing %s assignments" % (self.registry.assignment_queue.length()))
+        logging.info("%s assignments changed during this sync cycle.", changed_assignments)
+        logging.info("Committing %s assignments", self.registry.assignment_queue.length())
         # commit assignments that were created or updated
         self.registry.commit_assignments()
 
@@ -597,17 +602,21 @@ class LocalSyncController(SyncController):
         self.read_id_tmpl = 'trough-read:%s:%%s' % self.hostname
         self.write_id_tmpl = 'trough-write:%s:%%s' % self.hostname
         self.healthy_service_ids = set()
+        self.heartbeat_thread = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
 
     def start(self):
-        th = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
-        th.start()
+        self.heartbeat_thread.start()
 
     def heartbeat_periodically_forever(self):
         while True:
             start = time.time()
-            healthy_service_ids = self.periodic_heartbeat()
-            elapsed =  time.time() - start
-            logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
+            try:
+                healthy_service_ids = self.periodic_heartbeat()
+                elapsed =  time.time() - start
+                logging.info('heartbeated %s segments in %0.2f sec', len(healthy_service_ids), elapsed)
+            except:
+                elapsed =  time.time() - start
+                logging.error('problem sending heartbeat', exc_info=True)
             time.sleep(self.sync_loop_timing - elapsed)
 
     def periodic_heartbeat(self):
@@ -625,6 +634,9 @@ class LocalSyncController(SyncController):
             assert settings['RETHINKDB_HOSTS'], "RETHINKDB_HOSTS must be set. Where can I contact RethinkDB on port 29015?"
         except AssertionError as e:
             sys.exit("{} Exiting...".format(str(e)))
+
+    def check_health(self):
+        assert self.heartbeat_thread.is_alive()
 
     def copy_segment_from_hdfs(self, segment):
         logging.debug('copying segment %r from HDFS path %r...', segment.id, segment.remote_path)
@@ -689,6 +701,7 @@ class LocalSyncController(SyncController):
             add read id to self.healthy_service_ids
             delete write lock from rethinkdb
         '''
+        start = time.time()
         logging.info('sync starting')
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
@@ -753,8 +766,14 @@ class LocalSyncController(SyncController):
         if not hdfs_up:
             return
 
+        num_processed = 0
         for segment_id in sorted(stale_queue, reverse=True):
+            elapsed = time.time() - start
+            if elapsed > self.sync_loop_timing:
+                logging.debug('sync loop timed out after %0.1f sec', elapsed)
+                break
             segment = my_segments.get(segment_id)
+            num_processed += 1
             if not segment or not segment.remote_path:
                 # There is a newer copy in hdfs but we are not assigned to
                 # serve it. Do not copy down the new segment and do not release
@@ -778,6 +797,7 @@ class LocalSyncController(SyncController):
             if write_lock:
                 logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
                 self.decommission_writable_segment(segment, write_lock)
+        logging.info('processed %s of %s stale segments in %0.1f sec', num_processed, len(stale_queue), time.time() - start)
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
         # instantiate the segment
@@ -870,7 +890,9 @@ class LocalSyncController(SyncController):
     def collect_garbage(self):
         assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
         for item in os.listdir(self.local_data):
-            if item.split(".")[0] not in assignments:
+            if item.endswith('_COPYING_') or item.endswith("journal"):
+                continue
+            if item.replace(".sqlite", "") not in assignments:
                 path = os.path.join(self.local_data, item)
                 logging.info("Deleting unassigned file: %s" % path)
                 os.remove(path)
