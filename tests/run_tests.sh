@@ -6,15 +6,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 docker build -t internetarchive/trough-tests $script_dir
 
-# TODO some of these uwsgi services are not what we run anymore
-
 docker run --rm -it --volume="$script_dir/..:/trough" internetarchive/trough-tests /sbin/my_init -- bash -c \
     $'bash -x -c "cd /tmp && git clone /trough \
             && cd /tmp/trough \
             && (cd /trough && git diff HEAD) | patch -p1 \
             && virtualenv -p python3 /tmp/venv \
             && source /tmp/venv/bin/activate \
-            && pip install -e /trough --no-input --upgrade --pre --index-url https://devpi.archive.org/ait/packages/+simple/" \
+            && pip install pytest git+https://github.com/jkafader/snakebite@feature/python3-version-string -e /trough --no-input --upgrade" \
     && bash -x -c "source /tmp/venv/bin/activate \
             && sync.py >>/tmp/trough-sync-local.out 2>&1 &" \
     && bash -x -c "source /tmp/venv/bin/activate \
@@ -27,6 +25,5 @@ docker run --rm -it --volume="$script_dir/..:/trough" internetarchive/trough-tes
             && uwsgi --daemonize2 --venv=/tmp/venv --http :6222 --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file /tmp/venv/bin/writer.py >>/tmp/trough-write.out 2>&1 \
             && uwsgi --daemonize2 --venv=/tmp/venv --http :6112 --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 \
             && uwsgi --daemonize2 --venv=/tmp/venv --http :6111 --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 \
-            && pip install pytest \
             && cd /tmp/trough \
             && py.test -v tests"'
