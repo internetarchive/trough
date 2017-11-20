@@ -24,7 +24,7 @@
     owner: "{{user}}"
   with_items:
     - trough-sync-server
-    - trough-write-provisioner
+    - trough-segment-manager
 
 - name: Ensure daemontools service directories are in place
   become: true
@@ -35,8 +35,8 @@
   with_items:
     - trough-sync-server
     - trough-sync-server/log
-    - trough-write-provisioner
-    - trough-write-provisioner/log
+    - trough-segment-manager
+    - trough-segment-manager/log
 
 - name: Install logrotate.d rotation scripts for local trough logs
   become: true
@@ -47,7 +47,7 @@
     mode: 0644  
   with_items:
     - name: trough-sync-server
-    - name: trough-write-provisioner
+    - name: trough-segment-manager
 
 - name: Install Trough
   become: true
@@ -96,40 +96,40 @@
     state: restarted
     service_dir: "/etc/service/trough-sync-server/"
 
-- name: Install trough-write-provisioner supervised by daemontools in /etc/service
+- name: Install trough-segment-manager supervised by daemontools in /etc/service
   become: true
   vars:
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_server_port}} --uid={{user}} --master --processes=2 --harakiri=120 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server"
-    name: trough-write-provisioner
+    name: trough-segment-manager
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/trough-write-provisioner/run"
+    dest: "/etc/service/trough-segment-manager/run"
     owner: root
     mode: 0755
 
-- name: Install trough-write-provisioner fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner
+- name: Install trough-segment-manager fifo log reader supervised by daemontools in /etc/service/trough-segment-manager
   become: true
   vars:
-    name: trough-write-provisioner
+    name: trough-segment-manager
     udp_dest: "{{udp_log_host}}:{{write_provisioner_server_udp_log_port}}"
   template:
     src: fifo-log-reader-skeleton.j2
-    dest: "/etc/service/trough-write-provisioner/log/run"
+    dest: "/etc/service/trough-segment-manager/log/run"
     owner: root
     mode: 0755
 
-- name: Start trough-write-provisioner
+- name: Start trough-segment-manager
   become: true
   svc:
-    name: trough-write-provisioner
+    name: trough-segment-manager
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write-provisioner"
+    service_dir: "/etc/service/trough-segment-manager"
 
-- name: "Start trough-write-provisioner fifo log reader"
+- name: "Start trough-segment-manager fifo log reader"
   become: true
   svc:
     name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write-provisioner"
+    service_dir: "/etc/service/trough-segment-manager"
