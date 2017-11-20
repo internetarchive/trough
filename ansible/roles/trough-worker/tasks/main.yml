@@ -35,7 +35,7 @@
     - trough-sync-local
     - trough-write
     - trough-read
-    - trough-write-provisioner-local
+    - trough-segment-manager-local
 
 - name: Ensure daemontools service directories are in place
   become: true
@@ -47,11 +47,11 @@
     - trough-sync-local
     - trough-write
     - trough-read
-    - trough-write-provisioner-local
+    - trough-segment-manager-local
     - trough-sync-local/log
     - trough-write/log
     - trough-read/log
-    - trough-write-provisioner-local/log
+    - trough-segment-manager-local/log
 
 - name: Install logrotate.d rotation scripts for local trough logs
   become: true
@@ -64,7 +64,7 @@
     - name: trough-sync-local
     - name: trough-write
     - name: trough-read
-    - name: trough-write-provisioner-local
+    - name: trough-segment-manager-local
 
 - name: Install Trough
   become: true
@@ -189,40 +189,40 @@
     state: restarted
     service_dir: "/etc/service/trough-read"
 
-- name: Install trough-write-provisioner-local supervised by daemontools in /etc/service
+- name: Install trough-segment-manager-local supervised by daemontools in /etc/service
   become: true
   vars:
     command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_local_port}} --uid={{user}} --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local"
-    name: trough-write-provisioner-local
+    name: trough-segment-manager-local
   template:
     src: service-skeleton.j2
-    dest: "/etc/service/trough-write-provisioner-local/run"
+    dest: "/etc/service/trough-segment-manager-local/run"
     owner: root
     mode: 0744
 
-- name: Install trough-write-provisioner-local fifo log reader supervised by daemontools in /etc/service/trough-write-provisioner-local
+- name: Install trough-segment-manager-local fifo log reader supervised by daemontools in /etc/service/trough-segment-manager-local
   become: true
   vars:
-    name: trough-write-provisioner-local
+    name: trough-segment-manager-local
     udp_dest: "{{udp_log_host}}:{{write_provisioner_local_udp_log_port}}"
   template:
     src: fifo-log-reader-skeleton.j2
-    dest: "/etc/service/trough-write-provisioner-local/log/run"
+    dest: "/etc/service/trough-segment-manager-local/log/run"
     owner: root
     mode: 0755
 
-- name: Start trough-write-provisioner-local
+- name: Start trough-segment-manager-local
   become: true
   svc:
-    name: trough-write-provisioner-local
+    name: trough-segment-manager-local
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write-provisioner-local"
+    service_dir: "/etc/service/trough-segment-manager-local"
 
-- name: "Start trough-write-provisioner-local fifo log reader"
+- name: "Start trough-segment-manager-local fifo log reader"
   become: true
   svc:
     name: log
     enabled: yes
     state: restarted
-    service_dir: "/etc/service/trough-write-provisioner-local"
+    service_dir: "/etc/service/trough-segment-manager-local"
