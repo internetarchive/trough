@@ -133,3 +133,15 @@
     enabled: yes
     state: restarted
     service_dir: "/etc/service/trough-segment-manager"
+
+- name: Remove old path for trough write provisioner
+  become: true
+  file:
+    state: absent
+    path: "/etc/service/trough-write-provisioner/"
+
+- name: Restart daemontools to pick up any logging configuration changes
+  become: true
+  systemd:
+    name: daemontools
+    state: reloaded
