@@ -542,9 +542,11 @@ class MasterSyncController(SyncController):
                     r.table('services')\
                         .get_all('trough-nodes', index='role')\
                         .filter(lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"]))\
-                        .order_by('load')[0].default({ })
+                        .order_by('load')[0].default(None)
                 )
             ).run()
+        if not assignment:
+            raise Exception('No healthy node to assign to')
         post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
         json_data = {'segment': segment_id, 'schema': schema_id}
         response = requests.post(post_url, json=json_data)
