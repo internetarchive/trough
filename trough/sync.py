@@ -506,9 +506,11 @@ class MasterSyncController(SyncController):
                     r.table('services')\
                         .get_all('trough-nodes', index='role')\
                         .filter(lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"]))\
-                        .order_by('load')[0].default({ })
+                        .order_by('load')[0].default(None)
                 )
             ).run()
+        if not assignment:
+            raise Exception('No healthy node to assign to')
         # finally, if we have not retrieved a write lock, we need to talk to the local node.
         if not assignment.get('id', '').startswith('write:lock'):
             post_url = 'http://%s:%s/' % (assignment['node'], self.sync_port)

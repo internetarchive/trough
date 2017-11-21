@@ -342,11 +342,11 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(u[1], 'http://example3:6111/')
         self.assertEqual(d[1], 'testsegment')
         self.assertEqual(output, 'http://example3:6222/?segment=testsegment')
+        # check behavior when we get a downstream error
         self.rethinker.table('services').delete().run()
         self.rethinker.table('services').insert({
             'role': "trough-nodes",
             'node': "example4",
-            'segment': "testsegment",
             'ttl': 999,
             'last_heartbeat': r.now(),
         }).run()
@@ -354,7 +354,36 @@ class TestMasterSyncController(unittest.TestCase):
             output = controller.provision_writable_segment('testsegment')
         self.assertEqual(u[2], 'http://example4:6111/')
         self.assertEqual(d[2], 'testsegment')
-        # check behavior when no nodes in pool?
+        # check behavior when node expires
+        self.rethinker.table('services').delete().run()
+        self.rethinker.table('services').insert({
+            'role': "trough-nodes",
+            'node': "example6",
+            'load': 30,
+            'ttl': 1.5,
+            'last_heartbeat': r.now(),
+        }).run()
+        self.rethinker.table('services').insert({
+            'role': "trough-nodes",
+            'node': "example5",
+            'load': 0.01,
+            'ttl': 0.2,
+            'last_heartbeat': r.now(),
+        }).run()
+        # example 5 hasn't expired yet
+        output = controller.provision_writable_segment('testsegment')
+        self.assertEqual(u[3], 'http://example5:6111/')
+        self.assertEqual(d[3], 'testsegment')
+        time.sleep(1)
+        # example 5 has expired
+        output = controller.provision_writable_segment('testsegment')
+        self.assertEqual(u[4], 'http://example6:6111/')
+        self.assertEqual(d[4], 'testsegment')
+        time.sleep(1)
+        # example 5 and 6 have expired
+        with self.assertRaises(Exception):
+            output = controller.provision_writable_segment('testsegment')
+
     def test_sync(self):
         pass
 
