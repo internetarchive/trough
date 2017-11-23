@@ -39,7 +39,10 @@ class ReadServer:
         self.start_response('200 OK', [('Content-Type','application/json')])
         yield b"["
         try:
-            for row in cursor.fetchall():
+            while True:
+                row = cursor.fetchone()
+                if not row:
+                    break
                 if not first:
                     yield b",\n"
                 output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
