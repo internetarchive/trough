@@ -23,13 +23,30 @@ docker run --detach --rm --name=hadoop --publish=8020:8020 --publish=50070:50070
 # see "I WANT TO CONNECT TO A CONTAINER FROM THE MAC" (you can't)
 hadoop_container_ip=$(docker exec -it hadoop ifconfig eth0 | egrep -o 'addr:[^ ]+' | awk -F: '{print $2}')
 sudo ifconfig lo0 alias $hadoop_container_ip
+sudo ifconfig lo0 alias 127.0.0.1
 
 $VIRTUAL_ENV/bin/sync.py >>/tmp/trough-sync-local.out 2>&1 &
-sleep 3.5
-python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; rr.db('trough_configuration').wait().run()"
+sleep 0.5
+python -c "
+import doublethink
+from trough.settings import settings
+from rethinkdb.errors import ReqlOpFailedError
 
-uwsgi --venv=$VIRTUAL_ENV --http :6444 --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/reader.py >>/tmp/trough-read.out 2>&1 &
-uwsgi --venv=$VIRTUAL_ENV --http :6222 --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/writer.py >>/tmp/trough-write.out 2>&1 &
+rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS'])
+while True:
+    try:
+        rr.db('trough_configuration').wait().run()
+        rr.db('trough_configuration').table('assignment').wait().run()
+        rr.db('trough_configuration').table('lock').wait().run()
+        rr.db('trough_configuration').table('schema').wait().run()
+        rr.db('trough_configuration').table('services').wait().run()
+        break
+    except ReqlOpFailedError as e:
+        pass
+"
+
+uwsgi --venv=$VIRTUAL_ENV --http :6444 --route-run=chunked: --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/reader.py >>/tmp/trough-read.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6222 --route-run=chunked: --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/writer.py >>/tmp/trough-write.out 2>&1 &
 $VIRTUAL_ENV/bin/sync.py --server >>/tmp/trough-sync-server.out 2>&1 &
-uwsgi --venv=$VIRTUAL_ENV --http :6112 --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 &
-uwsgi --venv=$VIRTUAL_ENV --http :6111 --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6112 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6111 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &

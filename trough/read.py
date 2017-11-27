@@ -33,7 +33,10 @@ class ReadServer:
         first = True
         yield b"["
         try:
-            for row in cursor.fetchall():
+            while True:
+                row = cursor.fetchone()
+                if not row:
+                    break
                 if not first:
                     yield b",\n"
                 output = dict((cursor.description[i][0], value) for i, value in enumerate(row))
@@ -70,7 +73,8 @@ class ReadServer:
             segment_id = query_dict.get('segment', env.get('HTTP_HOST', "").split("."))[0]
             logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
             segment = trough.sync.Segment(segment_id=segment_id, size=0, rethinker=self.rethinker, services=self.services, registry=self.registry)
-            query = env.get('wsgi.input').read()
+            content_length = int(env.get('CONTENT_LENGTH', 0))
+            query = env.get('wsgi.input').read(content_length)
 
             write_lock = segment.retrieve_write_lock()
             if write_lock and write_lock['node'] != settings['HOSTNAME']:
@@ -91,3 +95,4 @@ class ReadServer:
             logging.error('500 Server Error due to exception', exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]
+

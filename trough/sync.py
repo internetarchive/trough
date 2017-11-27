@@ -499,7 +499,7 @@ class MasterSyncController(SyncController):
                     ring_assignments[dict_key]['node'] = assigned_node
                     ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
                     self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
-        logging.info("%s assignments changed during this sync cycle.", changed_assignments)
+            logging.info("%s assignments changed during this sync cycle.", changed_assignments)
         logging.info("Committing %s assignments", self.registry.assignment_queue.length())
         # commit assignments that were created or updated
         self.registry.commit_assignments()

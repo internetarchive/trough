@@ -358,8 +358,8 @@ class TestMasterSyncController(unittest.TestCase):
         }).run()
         with self.assertRaisesRegex(Exception, 'Received response 500:'):
             output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[3], 'http://example4:6111/')
-        self.assertEqual(d[3], 'testsegment')
+        self.assertEqual(u[3], 'http://example4:6112/provision')
+        self.assertEqual(d[3]['segment'], 'testsegment')
         # check behavior when node expires
         self.rethinker.table('services').delete().run()
         self.rethinker.table('services').insert({
@@ -378,13 +378,13 @@ class TestMasterSyncController(unittest.TestCase):
         }).run()
         # example 5 hasn't expired yet
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[4], 'http://example5:6111/')
-        self.assertEqual(d[4], 'testsegment')
+        self.assertEqual(u[4], 'http://example5:6112/provision')
+        self.assertEqual(d[4], {'segment': 'testsegment', 'schema': 'default'})
         time.sleep(1)
         # example 5 has expired
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[5], 'http://example6:6111/')
-        self.assertEqual(d[5], 'testsegment')
+        self.assertEqual(u[5], 'http://example6:6112/provision')
+        self.assertEqual(d[5], {'segment': 'testsegment', 'schema': 'default'})
         time.sleep(1)
         # example 5 and 6 have expired
         with self.assertRaises(Exception):
