@@ -45,8 +45,8 @@ while True:
         pass
 "
 
-uwsgi --venv=$VIRTUAL_ENV --http :6444 --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/reader.py >>/tmp/trough-read.out 2>&1 &
-uwsgi --venv=$VIRTUAL_ENV --http :6222 --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/writer.py >>/tmp/trough-write.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6444 --route-run=chunked: --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/reader.py >>/tmp/trough-read.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6222 --route-run=chunked: --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/writer.py >>/tmp/trough-write.out 2>&1 &
 $VIRTUAL_ENV/bin/sync.py --server >>/tmp/trough-sync-server.out 2>&1 &
-uwsgi --venv=$VIRTUAL_ENV --http :6112 --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 &
-uwsgi --venv=$VIRTUAL_ENV --http :6111 --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6112 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 &
+uwsgi --venv=$VIRTUAL_ENV --http :6111 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &
