@@ -99,7 +99,7 @@
 - name: Install trough-write-provisioner supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=120 --max-requests=50000 --vacuum --die-on-term --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_port}} --uid={{user}} --master --processes=2 --harakiri=120 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --wsgi-file {{venv_root}}/trough-ve3/bin/write_provisioner_server.py"
     name: trough-write-provisioner
   template:
     src: service-skeleton.j2
