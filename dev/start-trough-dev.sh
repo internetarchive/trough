@@ -25,8 +25,24 @@ hadoop_container_ip=$(docker exec -it hadoop ifconfig eth0 | egrep -o 'addr:[^ ]
 sudo ifconfig lo0 alias $hadoop_container_ip
 
 $VIRTUAL_ENV/bin/sync.py >>/tmp/trough-sync-local.out 2>&1 &
-sleep 3.5
-python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; rr.db('trough_configuration').wait().run()"
+sleep 0.5
+python -c "
+import doublethink
+from trough.settings import settings
+from rethinkdb.errors import ReqlOpFailedError
+
+rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS'])
+while True:
+    try:
+        rr.db('trough_configuration').wait().run()
+        rr.db('trough_configuration').table('assignment').wait().run()
+        rr.db('trough_configuration').table('lock').wait().run()
+        rr.db('trough_configuration').table('schema').wait().run()
+        rr.db('trough_configuration').table('services').wait().run()
+        break
+    except ReqlOpFailedError as e:
+        pass
+"
 
 uwsgi --venv=$VIRTUAL_ENV --http :6444 --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/reader.py >>/tmp/trough-read.out 2>&1 &
 uwsgi --venv=$VIRTUAL_ENV --http :6222 --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file $VIRTUAL_ENV/bin/writer.py >>/tmp/trough-write.out 2>&1 &
