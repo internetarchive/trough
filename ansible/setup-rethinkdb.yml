@@ -1,0 +1,6 @@
+---
+- name: deploy rethinkdb
+  hosts: rethinkdb
+  roles:
+    - common
+    - rethinkdb
