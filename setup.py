@@ -26,7 +26,7 @@ setup(
         'snakebite==2.8.2-python3',
         'ujson==1.35',
         'sqlparse==0.2.2',
-        'uWSGI==2.0.14',
+        'uWSGI==2.0.15',
         'doublethink>=0.2.0.dev84',
         'uhashring==0.7',
         'flask==0.12.2',
