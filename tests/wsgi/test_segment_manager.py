@@ -293,6 +293,13 @@ def test_promotion(segment_manager_server):
     result_dict = ujson.loads(result_bytes)
     assert result_dict == {'remote_path': expected_remote_path}
 
+    # make sure it doesn't think the segment is under promotion
+    rethinker = doublethink.Rethinker(
+            servers=settings['RETHINKDB_HOSTS'], db='trough_configuration')
+    query = rethinker.table('lock').get('write:lock:test_promotion')
+    result = query.run()
+    assert not result.get('under_promotion')
+
     # let's see if it's hdfs
     listing_after_promotion = hdfs.ls(expected_remote_path, detail=True)
     assert len(listing_after_promotion) == 1
@@ -307,3 +314,16 @@ def test_promotion(segment_manager_server):
         cur = conn.execute('select * from foo')
         assert cur.fetchall() == [('testing segment promotion',)]
         conn.close()
+
+    # pretend the segment is under promotion
+    rethinker.table('lock')\
+            .get('write:lock:test_promotion')\
+            .update({'under_promotion': True}).run()
+    assert rethinker.table('lock')\
+            .get('write:lock:test_promotion').run()\
+            .get('under_promotion')
+    with pytest.raises(Exception):
+        result = segment_manager_server.post(
+                '/promote', content_type='application/json',
+                data=ujson.dumps({'segment': 'test_promotion'}))
+
