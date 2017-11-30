@@ -237,4 +237,4 @@
   become: true
   systemd:
     name: daemontools
-    state: reloaded
+    state: restarted
