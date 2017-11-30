@@ -556,29 +556,14 @@ class MasterSyncController(SyncController):
         return result_dict
 
     def promote_writable_segment_upstream(self, segment_id):
-        # this function should make a call to the downstream server that holds the write lock
-
-        # Consider use of this module: https://github.com/husio/python-sqlite3-backup
-        # with pauses in between page copies to allow reads.
-        # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
-        # query below is an implementation of this algoritm:
-        # if a lock exists, insert a flag representing the promotion into it, if it doesn't return None
-
-        query = self.rethinker.table('lock')\
-            .get('write:lock:%s' % segment_id)\
-            .update({'under_promotion': True}, return_changes=True)
-        output = query.run()
-        try:
-            lock = output['changes'][0]['new_val']
-        except:
-            if output['unchanged'] > 0:
-                raise Exception("Segment %s is currently being copied upstream" % segment_id)
-            if output['skipped'] > 0:
-                raise Exception("Segment %s is not currently writable" % segment_id)
-            raise Exception("Unexpected result %r from rethinkdb query %r" % (output, query))
+        # this function calls the downstream server that holds the write lock
+        # if a lock exists, insert a flag representing the promotion into it, otherwise raise exception
 
         # forward the request downstream to actually perform the promotion
-        post_url = 'http://%s:%s/promote' % (lock['node'], self.sync_local_port)
+        write_lock = self.rethinker.table('lock').get('write:lock:%s' % segment_id).run()
+        if not write_lock:
+            raise Exception("Segment %s is not currently writable" % segment_id)
+        post_url = 'http://%s:%s/promote' % (write_lock['node'], self.sync_local_port)
         json_data = {'segment': segment_id}
         response = requests.post(post_url, json=json_data)
         if response.status_code != 200:
@@ -868,16 +853,24 @@ class LocalSyncController(SyncController):
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
 
     def promote_writable_segment_upstream(self, segment_id):
-        # Consider use of this module: https://github.com/husio/python-sqlite3-backup
-        # with pauses in between page copies to allow reads.
-        # more reading on this topic here: https://www.sqlite.org/howtocorrupt.html
-        # forward the request downstream to actually perform the promotion
-
         # retrieve write lock, ensuring that the segment is under promotion
         # spawn a thread to perform the promotion
 
         # return a response that the promotion is in progress
-        write_lock = self.rethinker.table('lock').get('write:lock:%s' % segment_id).run()
+        query = self.rethinker.table('lock')\
+            .get('write:lock:%s' % segment_id)\
+            .update({'under_promotion': True}, return_changes=True)
+        result = query.run()
+        try:
+            write_lock = result['changes'][0]['new_val']
+            assert write_lock['node'] == self.hostname
+        except:
+            if result['unchanged'] > 0:
+                raise Exception("Segment %s is currently being copied upstream (write lock flag 'under_promotion' is set)" % segment_id)
+            if result['skipped'] > 0:
+                raise Exception("Segment %s is not currently writable" % segment_id)
+            raise Exception("Unexpected result %r from rethinkdb query %r" % (result, query))
+
         try:
             assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
             remote_path = assignment.remote_path
@@ -887,7 +880,12 @@ class LocalSyncController(SyncController):
                 segment_id, size=-1, rethinker=self.rethinker,
                 services=self.services, registry=self.registry,
                 remote_path=remote_path)
-        self.do_segment_promotion(segment)
+        try:
+            self.do_segment_promotion(segment)
+        finally:
+            self.rethinker.table('lock')\
+                    .get('write:lock:%s' % segment_id)\
+                    .update({'under_promotion': False}).run()
         return {'remote_path': remote_path}
 
     def collect_garbage(self):
