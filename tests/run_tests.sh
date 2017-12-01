@@ -21,9 +21,9 @@ docker run --rm -it --volume="$script_dir/..:/trough" internetarchive/trough-tes
     && bash -x -c "source /tmp/venv/bin/activate \
             && sync.py --server >>/tmp/trough-sync-server.out 2>&1 &" \
     && bash -x -c "source /tmp/venv/bin/activate \
-            && uwsgi --daemonize2 --venv=/tmp/venv --http :6444 --route-run=chunked: --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file /tmp/venv/bin/reader.py >>/tmp/trough-read.out 2>&1 \
-            && uwsgi --daemonize2 --venv=/tmp/venv --http :6222 --route-run=chunked: --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file /tmp/venv/bin/writer.py >>/tmp/trough-write.out 2>&1 \
-            && uwsgi --daemonize2 --venv=/tmp/venv --http :6112 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 \
-            && uwsgi --daemonize2 --venv=/tmp/venv --http :6111 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 \
+            && uwsgi --daemonize2 --venv=/tmp/venv --http :6444 --master --processes=2 --harakiri=3200 --http-timeout=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file /tmp/venv/bin/reader.py >>/tmp/trough-read.out 2>&1 \
+            && uwsgi --daemonize2 --venv=/tmp/venv --http :6222 --master --processes=2 --harakiri=240 --http-timeout=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file /tmp/venv/bin/writer.py >>/tmp/trough-write.out 2>&1 \
+            && uwsgi --daemonize2 --venv=/tmp/venv --http :6112 --master --processes=2 --harakiri=7200 --http-timeout=7200 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 \
+            && uwsgi --daemonize2 --venv=/tmp/venv --http :6111 --master --processes=2 --harakiri=7200 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 \
             && cd /tmp/trough \
             && py.test -v tests"'
