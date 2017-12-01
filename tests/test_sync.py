@@ -5,10 +5,6 @@ import unittest
 from unittest import mock
 from trough import sync
 from trough.settings import settings
-import sqlite3
-from collections import defaultdict
-import threading
-import datetime
 import time
 import doublethink
 import rethinkdb as r
@@ -16,6 +12,8 @@ import random
 import string
 import tempfile
 import logging
+from hdfs3 import HDFileSystem
+import pytest
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
 
@@ -24,7 +22,7 @@ class TestSegment(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -92,7 +90,7 @@ class TestSegment(unittest.TestCase):
             size=100)
         output = segment.minimum_assignments()
         self.assertEqual(output, 2)
-    def test_acquire_write_lock(self):
+    def test_new_write_lock(self):
         lock = sync.Lock.load(self.rethinker, 'write:lock:123456')
         if lock:
             lock.release()
@@ -101,9 +99,9 @@ class TestSegment(unittest.TestCase):
             rethinker=self.rethinker,
             registry=self.registry,
             size=100)
-        lock = segment.acquire_write_lock()
+        lock = segment.new_write_lock()
         with self.assertRaises(Exception):
-            segment.acquire_write_lock()
+            segment.new_write_lock()
         lock.release()
     def test_retrieve_write_lock(self):
         lock = sync.Lock.load(self.rethinker, 'write:lock:123456')
@@ -114,7 +112,7 @@ class TestSegment(unittest.TestCase):
             rethinker=self.rethinker,
             registry=self.registry,
             size=100)
-        output = segment.acquire_write_lock()
+        output = segment.new_write_lock()
         lock = segment.retrieve_write_lock()
         self.assertEqual(lock["node"], settings['HOSTNAME'])
         self.assertIn("acquired_on", lock)
@@ -143,22 +141,15 @@ class TestSegment(unittest.TestCase):
             size=100)
         if segment.local_segment_exists():
             os.remove(segment.local_path())
-        output = segment.provision_local_segment()
-        connection = sqlite3.connect(segment.local_path())
-        cursor = connection.cursor()
-        results = cursor.execute('SELECT * FROM test;')
-        output = [dict((cursor.description[i][0], value) for i, value in enumerate(row)) for row in results]
-        connection.close()
+        output = segment.provision_local_segment('')
         os.remove(segment.local_path())
-        self.assertEqual(output, [{'id': 1, 'test': 'test'}])
-
 
 
 class TestHostRegistry(unittest.TestCase):
     def setUp(self):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table("services").delete().run()
         self.rethinker.table("lock").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -217,7 +208,7 @@ class TestMasterSyncController(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.snakebite_client = mock.Mock()
         self.rethinker.table("services").delete().run()
         self.rethinker.table("assignment").delete().run()
@@ -253,32 +244,43 @@ class TestMasterSyncController(unittest.TestCase):
         self.assertEqual(output, True)
         output = controller.hold_election()
         self.assertEqual(output, True)
-    @mock.patch("trough.sync.client")
-    def test_get_segment_file_list(self, snakebite):
-        class C:
-            def __init__(*args, **kwargs):
-                pass
-            def ls(*args, **kwargs):
-                yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
-        snakebite.Client = C
+    def test_get_segment_file_list(self):
         controller = sync.MasterSyncController(
             rethinker=self.rethinker,
             services=self.services,
             registry=self.registry)
+        # populate some dirs/files
+        hdfs = HDFileSystem(host=controller.hdfs_host, port=controller.hdfs_port)
+        hdfs.rm(controller.hdfs_path, recursive=True)
+        hdfs.mkdir(controller.hdfs_path)
+        hdfs.touch(os.path.join(controller.hdfs_path, '0.txt'))
+        hdfs.touch(os.path.join(controller.hdfs_path, '1.sqlite'))
+        hdfs.mkdir(os.path.join(controller.hdfs_path, '2.dir'))
+        hdfs.touch(os.path.join(controller.hdfs_path, '3.txt'))
+        with hdfs.open(os.path.join(controller.hdfs_path, '4.sqlite'), 'wb', replication=1) as f:
+            f.write(b'some bytes')
+        hdfs.touch('/tmp/5.sqlite')
         listing = controller.get_segment_file_list()
-        called = False
-        for item in listing:
-            self.assertEqual(item['length'], 1024*1000)
-            called = True
-        self.assertTrue(called)
-    @mock.patch("trough.sync.client")
-    def test_assign_segments(self, snakebite):
-        class C:
-            def __init__(*args, **kwargs):
-                pass
-            def ls(*args, **kwargs):
-                yield {'length': 1024 * 1000, 'path': '/seg1.sqlite'}
-        snakebite.Client = C
+        entry = next(listing)
+        assert entry['name'] == os.path.join(controller.hdfs_path, '1.sqlite')
+        assert entry['kind'] == 'file'
+        assert entry['size'] == 0
+        entry = next(listing)
+        assert entry['name'] == os.path.join(controller.hdfs_path, '4.sqlite')
+        assert entry['kind'] == 'file'
+        assert entry['size'] == 10
+        with pytest.raises(StopIteration):
+            next(listing)
+        # clean up after successful test
+        hdfs.rm(controller.hdfs_path, recursive=True)
+        hdfs.mkdir(controller.hdfs_path)
+    def test_assign_segments(self):
+        controller = self.get_local_controller()
+        hdfs = HDFileSystem(host=controller.hdfs_host, port=controller.hdfs_port)
+        hdfs.rm(controller.hdfs_path, recursive=True)
+        hdfs.mkdir(controller.hdfs_path)
+        with hdfs.open(os.path.join(controller.hdfs_path, '1.sqlite'), 'wb', replication=1) as f:
+            f.write(b'x' * 1024)
         hostname = 'test.example.com'
         self.registry.heartbeat(pool='trough-nodes',
             service_id='trough:nodes:%s' % hostname,
@@ -289,25 +291,28 @@ class TestMasterSyncController(unittest.TestCase):
         controller.assign_segments()
         assignments = [asmt for asmt in self.rethinker.table('assignment').filter(r.row['id'] != 'ring-assignments').run()]
         self.assertEqual(len(assignments), 1)
-        self.assertEqual(assignments[0]['bytes'], 1024 * 1000)
+        self.assertEqual(assignments[0]['bytes'], 1024)
         self.assertEqual(assignments[0]['hash_ring'], 0)
+        # clean up after successful test
+        hdfs.rm(controller.hdfs_path, recursive=True)
+        hdfs.mkdir(controller.hdfs_path)
     @mock.patch("trough.sync.requests")
     def test_provision_writable_segment(self, requests):
         u = []
         d = []
         class Response(object):
-            def __init__(self, code):
+            def __init__(self, code, text):
                 self.status_code = code
-            text = "Test"
-        def p(url, data):
+                self.text = text or "Test"
+        def p(url, data=None, json=None):
             u.append(url)
-            d.append(data)
-            if url == 'http://example4:6111/':
-                return Response(500)
+            d.append(data or json)
+            host = url.split("/")[2].split(":")[0]
+            if url == 'http://example4:6112/provision':
+                return Response(500, "Test")
             else:
-                return Response(200)
+                return Response(200, """{ "url": "http://%s:6222/?segment=testsegment" }""" % host)
         requests.post = p
-        # check behavior when lock exists
         self.rethinker.table('services').insert({
             'role': "trough-nodes",
             'node': "example3",
@@ -328,20 +333,21 @@ class TestMasterSyncController(unittest.TestCase):
             'node':'example', 
             'segment': 'testsegment' }).run()
         controller = self.get_local_controller()
+        # check behavior when lock exists
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(output, 'http://example:6222/?segment=testsegment')
+        self.assertEqual(output['url'], 'http://example:6222/?segment=testsegment')
         # check behavior when readable copy exists
         self.rethinker.table('lock').get('write:lock:testsegment').delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[0], 'http://example2:6111/')
-        self.assertEqual(d[0], 'testsegment')
-        self.assertEqual(output, 'http://example2:6222/?segment=testsegment')
+        self.assertEqual(u[1], 'http://example2:6112/provision')
+        self.assertEqual(d[1]['segment'], 'testsegment')
+        self.assertEqual(output['url'], 'http://example2:6222/?segment=testsegment')
         # check behavior when only pool of nodes exists
         self.rethinker.table('services').get( "trough-read:example2:testsegment").delete().run()
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[1], 'http://example3:6111/')
-        self.assertEqual(d[1], 'testsegment')
-        self.assertEqual(output, 'http://example3:6222/?segment=testsegment')
+        self.assertEqual(u[2], 'http://example3:6112/provision')
+        self.assertEqual(d[2]['segment'], 'testsegment')
+        self.assertEqual(output['url'], 'http://example3:6222/?segment=testsegment')
         # check behavior when we get a downstream error
         self.rethinker.table('services').delete().run()
         self.rethinker.table('services').insert({
@@ -350,10 +356,10 @@ class TestMasterSyncController(unittest.TestCase):
             'ttl': 999,
             'last_heartbeat': r.now(),
         }).run()
-        with self.assertRaises(Exception):
+        with self.assertRaisesRegex(Exception, 'Received response 500:'):
             output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[2], 'http://example4:6111/')
-        self.assertEqual(d[2], 'testsegment')
+        self.assertEqual(u[3], 'http://example4:6112/provision')
+        self.assertEqual(d[3]['segment'], 'testsegment')
         # check behavior when node expires
         self.rethinker.table('services').delete().run()
         self.rethinker.table('services').insert({
@@ -372,13 +378,13 @@ class TestMasterSyncController(unittest.TestCase):
         }).run()
         # example 5 hasn't expired yet
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[3], 'http://example5:6111/')
-        self.assertEqual(d[3], 'testsegment')
+        self.assertEqual(u[4], 'http://example5:6112/provision')
+        self.assertEqual(d[4], {'segment': 'testsegment', 'schema': 'default'})
         time.sleep(1)
         # example 5 has expired
         output = controller.provision_writable_segment('testsegment')
-        self.assertEqual(u[4], 'http://example6:6111/')
-        self.assertEqual(d[4], 'testsegment')
+        self.assertEqual(u[5], 'http://example6:6112/provision')
+        self.assertEqual(d[5], {'segment': 'testsegment', 'schema': 'default'})
         time.sleep(1)
         # example 5 and 6 have expired
         with self.assertRaises(Exception):
@@ -437,7 +443,7 @@ class TestLocalSyncController(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
-            sync.ensure_tables(self.rethinker)
+            sync.init(self.rethinker)
             assert controller.healthy_service_ids == set()
             controller.sync()
             assert controller.healthy_service_ids == set()
@@ -456,9 +462,8 @@ class TestLocalSyncController(unittest.TestCase):
             controller.sync()
             assert controller.healthy_service_ids == {'trough-read:test01:3', 'trough-write:test01:3'}
 
-    @mock.patch("trough.sync.client")
-    def test_sync_segment_freshness(self, snakebite):
-        sync.ensure_tables(self.rethinker)
+    def test_sync_segment_freshness(self):
+        sync.init(self.rethinker)
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.rethinker.table('lock').delete().run()
             self.rethinker.table('assignment').delete().run()
@@ -484,18 +489,13 @@ class TestLocalSyncController(unittest.TestCase):
         self.rethinker.table('lock').delete().run()
         self.rethinker.table('assignment').delete().run()
 
-        class C:
-            def __init__(*args, **kwargs):
-                pass
-            def ls(*args, **kwargs):
-                yield {'length': 1024 * 1000, 'path': '/5.sqlite', 'modification_time': 1}
-            def copyToLocal(self, paths, dst, *args, **kwargs):
-                with open(dst, 'wb') as f: pass
-                return [{'error':''}]
-        snakebite.Client = C
-
         # clean slate
         with tempfile.TemporaryDirectory() as tmp_dir:
+            hdfs = HDFileSystem(host=controller.hdfs_host, port=controller.hdfs_port)
+            hdfs.rm(controller.hdfs_path, recursive=True)
+            hdfs.mkdir(controller.hdfs_path)
+            with hdfs.open(os.path.join(controller.hdfs_path, '5.sqlite'), 'wb', replication=1) as f:
+                f.write('y' * 1024)
             self.rethinker.table('lock').delete().run()
             self.rethinker.table('assignment').delete().run()
             self.rethinker.table('services').delete().run()
@@ -504,7 +504,8 @@ class TestLocalSyncController(unittest.TestCase):
             # create an assignment without a local segment
             assignment = sync.Assignment(self.rethinker, d={
                 'hash_ring': 'a', 'node': 'test01', 'segment': '5',
-                'assigned_on': r.now(), 'remote_path': '/5.sqlite', 'bytes': 0})
+                'assigned_on': r.now(), 'bytes': 0,
+                'remote_path': os.path.join(controller.hdfs_path, '5.sqlite')})
             assignment.save()
             lock = sync.Lock.acquire(self.rethinker, 'write:lock:5', {'segment':'5'})
             assert len(list(self.rethinker.table('lock').run())) == 1
@@ -513,38 +514,41 @@ class TestLocalSyncController(unittest.TestCase):
             controller.sync()
             assert controller.healthy_service_ids == {'trough-read:test01:5'}
             assert list(self.rethinker.table('lock').run()) == []
-
-        class C:
-            def __init__(*args, **kwargs):
-                pass
-            def ls(*args, **kwargs):
-                yield {'length': 1024 * 1000, 'path': '/6.sqlite', 'modification_time': (time.time() + 1000000) * 1000}
-            def copyToLocal(self, paths, dst, *args, **kwargs):
-                with open(dst, 'wb') as f: pass
-                return [{'error':''}]
-        snakebite.Client = C
+            # clean up
+            hdfs.rm(controller.hdfs_path, recursive=True)
+            hdfs.mkdir(controller.hdfs_path)
 
         # third case: not assigned, local file exists, is older than hdfs
         # this corresponds to the situation where we have an out-of-date
         # segment on disk that was probably a write segment before it was
         # reassigned when it was pushed upstream
         with tempfile.TemporaryDirectory() as tmp_dir:
+            # create a local segment without an assignment
+            with open(os.path.join(tmp_dir, '6.sqlite'), 'wb'):
+                pass
+            time.sleep(2)
+            # create file in hdfs with newer timestamp
+            hdfs = HDFileSystem(host=controller.hdfs_host, port=controller.hdfs_port)
+            hdfs.rm(controller.hdfs_path, recursive=True)
+            hdfs.mkdir(controller.hdfs_path)
+            with hdfs.open(os.path.join(controller.hdfs_path, '6.sqlite'), 'wb', replication=1) as f:
+                f.write('z' * 1024)
             self.rethinker.table('lock').delete().run()
             self.rethinker.table('assignment').delete().run()
             self.rethinker.table('services').delete().run()
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
-            # create a local segment without an assignment
-            with open(os.path.join(tmp_dir, '6.sqlite'), 'wb'):
-                pass
             controller.healthy_service_ids.add('trough-write:test01:6')
             controller.healthy_service_ids.add('trough-read:test01:6')
             controller.sync()
             assert controller.healthy_service_ids == set()
+            # clean up
+            hdfs.rm(controller.hdfs_path, recursive=True)
+            hdfs.mkdir(controller.hdfs_path)
 
     @mock.patch("trough.sync.client")
     def test_hdfs_resiliency(self, snakebite):
-        sync.ensure_tables(self.rethinker)
+        sync.init(self.rethinker)
         self.rethinker.table('lock').delete().run()
         self.rethinker.table('assignment').delete().run()
         self.rethinker.table('services').delete().run()

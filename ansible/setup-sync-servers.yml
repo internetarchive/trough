@@ -4,4 +4,3 @@
   roles:
     - common
     - trough-sync-server
-    - rethinkdb

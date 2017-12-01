@@ -7,6 +7,47 @@
   - gcc
   - python3-dev
   - daemontools-run
+  - libasn1-8-heimdal
+  - libc6
+  - libcomerr2
+  - libcurl3
+  - libffi6
+  - libgcc1
+  - libgmp10
+  - libgnutls30
+  - libgsasl7
+  - libgssapi-krb5-2
+  - libgssapi3-heimdal
+  - libhcrypto4-heimdal
+  - libheimbase1-heimdal
+  - libheimntlm0-heimdal
+  - libhogweed4
+  - libhx509-5-heimdal
+  - libicu55
+  - libidn11
+  - libk5crypto3
+  - libkeyutils1
+  - libkrb5-26-heimdal
+  - libkrb5-3
+  - libkrb5support0
+  - libldap-2.4-2
+  - liblzma5
+  - libnettle6
+  - libntlm0
+  - libp11-kit0
+  - libroken18-heimdal
+  - librtmp1
+  - libsasl2-2
+  - libsqlite3-0
+  - libssl1.0.0
+  - libstdc++6
+  - libtasn1-6
+  - libuuid1
+  - libwind0-heimdal
+  - libxml2
+  - zlib1g
+  - libsqlite3-dev
+  - libpcre3-dev
 
 # get recent virtualenv, which bundles a recent pip
 - command: mktemp -d
@@ -23,7 +64,7 @@
   become: true
   command: python3 setup.py install
            chdir={{mktempd_out.stdout}}/virtualenv-15.1.0
-           creates=/usr/local/lib/python3.4/dist-packages/virtualenv-15.1.0-py3.4.egg/virtualenv.py
+           creates=/usr/local/lib/python3.*/dist-packages/virtualenv-15.1.0-py3.*.egg/virtualenv.py
 - file:
     path: '{{mktempd_out.stdout}}'
     state: absent
@@ -55,10 +96,8 @@
     owner: root
     mode: 0644
 
-- name: Install Segment Initialization SQL File
+- name: Install libhdfs3
   become: true
-  template:
-    src: initialize.sql.j2
-    dest: "/etc/trough/initialize.sql"
-    owner: root
-    mode: 0644
+  apt:
+    deb: https://github.com/jkafader/libhdfs3-deb/raw/master/libhdfs3_1-1-xenial-x86_64.deb
+

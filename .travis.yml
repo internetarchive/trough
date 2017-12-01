@@ -1,3 +1,5 @@
+group: deprecated-2017Q2
+
 language: python
 python:
 - 2.7
@@ -15,15 +17,47 @@ matrix:
   - python: pypy3
   - python: nightly
   - python: 3.7-dev
+
 services:
 - docker
 before_install:
 - sudo service docker restart ; sleep 10  # https://github.com/travis-ci/travis-ci/issues/4778
 - docker run -d --publish=28015:28015 rethinkdb
+- docker run -d --publish=8020:8020 --publish=50070:50070 --publish=50010:50010 --publish=50020:50020 --publish=50075:50075 chalimartines/cdh5-pseudo-distributed
+- sudo apt-get -y install libasn1-8-heimdal libc6 libcomerr2 libcurl3 libffi6 libgcc1 libgcrypt11 libgnutls26 libgpg-error0 libgsasl7 libgssapi3-heimdal libgssapi-krb5-2 libhcrypto4-heimdal libheimbase1-heimdal libheimntlm0-heimdal libhx509-5-heimdal libidn11 libk5crypto3 libkeyutils1 libkrb5-26-heimdal libkrb5-3 libkrb5support0 libldap-2.4-2 liblzma5 libntlm0 libp11-kit0 libroken18-heimdal librtmp0 libsasl2-2 libsqlite3-0 libssl1.0.0 libstdc++6 libtasn1-6 libuuid1 libwind0-heimdal libxml2 zlib1g
+- curl -sSLvO https://github.com/nlevitt/libhdfs3-deb/raw/trusty/libhdfs3_1-1-trusty-x86_64.deb
+- sudo dpkg -i libhdfs3_1-1-trusty-x86_64.deb
+
 install:
 - pip install git+https://github.com/jkafader/snakebite@feature/python3-version-string
 - pip install -e . --no-input --upgrade
+- pip install pytest
+
+before_script:
+### # https://docs.docker.com/docker-for-mac/networking/#use-cases-and-workarounds
+### # see "I WANT TO CONNECT TO A CONTAINER FROM THE MAC" (you can't)
+### hadoop_container_ip=$(docker exec -it hadoop ifconfig eth0 | egrep -o 'addr:[^ ]+' | awk -F: '{print $2}')
+### sudo ifconfig lo0 alias $hadoop_container_ip
+- 'sync.py >>/tmp/trough-sync-local.out 2>&1 &'
+- sleep 5
+- python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; rr.db('trough_configuration').wait().run()"
+- 'uwsgi --http :6444 --route-run=chunked: --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file scripts/reader.py >>/tmp/trough-read.out 2>&1 &'
+- 'uwsgi --http :6222 --route-run=chunked: --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file scripts/writer.py >>/tmp/trough-write.out 2>&1 &'
+- 'sync.py --server >>/tmp/trough-sync-server.out 2>&1 &'
+- 'uwsgi --http :6112 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:local >>/tmp/trough-segment-manager-local.out 2>&1 &'
+- 'uwsgi --http :6111 --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &'
+
 script:
-- python -m unittest discover
+- py.test -v tests
+
+after_script:
+- cat /tmp/trough-sync-local.out
+- cat /tmp/trough-read.out
+- cat /tmp/trough-write.out
+- cat /tmp/trough-sync-server.out
+- cat /tmp/trough-segment-manager-local.out
+- cat /tmp/trough-segment-manager-server.out
+
 notifications:
-    slack: internetarchive:PLZQTqR7RpyGNr1jb1TgMqhK
+  slack: internetarchive:PLZQTqR7RpyGNr1jb1TgMqhK
+
