@@ -192,7 +192,7 @@
 - name: Install trough-segment-manager-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_local_port}} --uid={{user}} --route-run=chunked: --master --processes=2 --harakiri=20 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --mount /=trough.wsgi.segment_manager:local"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_local_port}} --uid={{user}} --route-run=chunked: --master --processes=2 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --mount /=trough.wsgi.segment_manager:local"
     name: trough-segment-manager-local
   template:
     src: service-skeleton.j2
