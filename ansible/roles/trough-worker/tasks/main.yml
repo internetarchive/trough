@@ -116,7 +116,7 @@
 - name: Install trough-write supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --route-run=chunked: --master --processes=2 --harakiri=240 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{write_port}} --uid={{ user }} --master --processes=2 --harakiri=240 --http-timeout=240 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --wsgi-file {{venv_root}}/trough-ve3/bin/writer.py"
     name: trough-write
   template:
     src: service-skeleton.j2
@@ -154,7 +154,7 @@
 - name: Install trough-read supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --route-run=chunked: --master --processes=2 --harakiri=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{read_port}} --uid={{user}} --master --processes=2 --harakiri=3200 --http-timeout=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --wsgi-file {{venv_root}}/trough-ve3/bin/reader.py"
     name: trough-read
   template:
     src: service-skeleton.j2
@@ -192,7 +192,7 @@
 - name: Install trough-segment-manager-local supervised by daemontools in /etc/service
   become: true
   vars:
-    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_local_port}} --uid={{user}} --route-run=chunked: --master --processes=2 --max-requests=50000 --vacuum --die-on-term --http-timeout=900 --mount /=trough.wsgi.segment_manager:local"
+    command: "{{venv_root}}/trough-ve3/bin/uwsgi --http :{{sync_local_port}} --uid={{user}} --master --processes=2 --max-requests=50000 --vacuum --die-on-term --harakiri=7200 --http-timeout=7200 --mount /=trough.wsgi.segment_manager:local"
     name: trough-segment-manager-local
   template:
     src: service-skeleton.j2
