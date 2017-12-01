@@ -462,6 +462,7 @@ class MasterSyncController(SyncController):
                 dict_key = "%s-%s" % (assignment.hash_ring, assignment.segment)
                 ring_assignments[dict_key] = assignment
 
+        changed_assignments = 0
         # for each segment in segment list:
         for segment in segments:
             # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
@@ -475,7 +476,6 @@ class MasterSyncController(SyncController):
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
             assigned_rings = random.sample(hash_rings, segment.minimum_assignments())
             logging.debug("Segment [%s] will use rings %s", segment.id, [s.id for s in assigned_rings])
-            changed_assignments = 0
             for ring in assigned_rings:
                 # get the node for the key from hash ring, updating or creating assignments from corresponding entry in 'ring_assignments' as necessary
                 assigned_node = ring.get_node(segment.id)
@@ -499,7 +499,7 @@ class MasterSyncController(SyncController):
                     ring_assignments[dict_key]['node'] = assigned_node
                     ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
                     self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
-            logging.info("%s assignments changed during this sync cycle.", changed_assignments)
+        logging.info("%s assignments changed during this sync cycle.", changed_assignments)
         logging.info("Committing %s assignments", self.registry.assignment_queue.length())
         # commit assignments that were created or updated
         self.registry.commit_assignments()
