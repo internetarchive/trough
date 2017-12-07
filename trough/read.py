@@ -25,9 +25,8 @@ class ReadServer:
             # headers [('Content-Type','application/json')]
             headers = [("Content-Type", r.headers['Content-Type'],)]
             start_response(status_line, headers)
-            return r.iter_content()
-            # for chunk in r.iter_content():
-            #     yield chunk
+            for chunk in r.iter_content():
+                yield chunk
 
     def sql_result_json_iter(self, cursor):
         first = True
