@@ -18,7 +18,7 @@ def sizeof_fmt(num, suffix='B'):
 
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("example.com", 80))
+    s.connect(('10.255.255.255', 1)) # ip doesn't need to be reachable
     output = s.getsockname()[0]
     s.close()
     return output
