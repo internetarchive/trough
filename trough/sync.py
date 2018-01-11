@@ -53,7 +53,7 @@ def setup_connection(conn):
             return 'Crawled (HTTP error %s)' % status_code
         elif status_code > 0:
             return 'Crawled'
-        elif status_code == 0:
+        elif status_code in (0, -5003, -5004):
             return 'Not crawled (queued)'
         elif status_code == -9998:
             return 'Not crawled (blocked by robots)'
