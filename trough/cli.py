@@ -1,8 +1,12 @@
+import trough.client
 import sys
 import argparse
 import os
 import cmd
 import logging
+import readline
+
+HISTORY_FILE = os.path.expanduser('~/.trough_history')
 
 class BetterArgumentDefaultsHelpFormatter(
                 argparse.ArgumentDefaultsHelpFormatter,
@@ -39,6 +43,7 @@ class TroughShell(cmd.Cmd):
     def do_select(self, line):
         result = self.cli.read(self.segment_id, 'select ' + line)
         print(result)
+    do_SELECT = do_select
 
     def emptyline(self):
         pass
@@ -55,10 +60,8 @@ class TroughShell(cmd.Cmd):
     def do_quit(self, args):
         if not args:
             return True
-
-    def do_exit(self, args):
-        if not args:
-            return True
+    do_exit = do_quit
+    do_bye = do_quit
 
 def trough_client(argv=None):
     argv = argv or sys.argv
@@ -80,8 +83,14 @@ def trough_client(argv=None):
                 '%(asctime)s %(levelname)s %(name)s.%(funcName)s'
                 '(%(filename)s:%(lineno)d) %(message)s'))
 
-    import trough.client
     cli = trough.client.TroughClient(args.rethinkdb_trough_db_url)
     shell = TroughShell(cli, args.segment, args.writable, args.schema)
-    shell.cmdloop()
+
+    if os.path.exists(HISTORY_FILE):
+        readline.read_history_file(HISTORY_FILE)
+
+    try:
+        shell.cmdloop()
+    finally:
+        readline.write_history_file(HISTORY_FILE)
 
