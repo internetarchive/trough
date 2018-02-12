@@ -35,4 +35,5 @@ setup(
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
+    entry_points={'console_scripts': ['trough-client=trough.cli:trough_client']}
 )
