@@ -25,8 +25,8 @@ class BetterArgumentDefaultsHelpFormatter(
         else:
             return argparse.ArgumentDefaultsHelpFormatter._get_help_string(self, action)
 
-class TroughShell(cmd.Cmd):
-    logger = logging.getLogger('trough.client.TroughShell')
+class TroughRepl(cmd.Cmd):
+    logger = logging.getLogger('trough.client.TroughRepl')
 
     def __init__(
             self, trough_client, segment_id, writable=False,
@@ -84,7 +84,7 @@ def trough_client(argv=None):
                 '(%(filename)s:%(lineno)d) %(message)s'))
 
     cli = trough.client.TroughClient(args.rethinkdb_trough_db_url)
-    shell = TroughShell(cli, args.segment, args.writable, args.schema)
+    shell = TroughRepl(cli, args.segment, args.writable, args.schema)
 
     if os.path.exists(HISTORY_FILE):
         readline.read_history_file(HISTORY_FILE)
