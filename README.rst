@@ -41,6 +41,9 @@ Ease of installation
 
 One of the worst parts of setting up a big data system generally is getting setting sensible defaults and
 deploying it to staging and production environments. Trough has been designed to require as little 
-configuration as possible and includes ansible files to help get it up and running quickly.
+configuration as possible.
 
+An example ansible deployment specification has been removed from the trough
+repo but can be found at https://github.com/internetarchive/trough/tree/cc32d3771a7/ansible.
+It is designed for a cluster Ubuntu 16.04 Xenial nodes.
 
