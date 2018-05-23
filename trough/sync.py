@@ -888,7 +888,7 @@ class LocalSyncController(SyncController):
                     .update({'under_promotion': False}).run()
         return {'remote_path': remote_path}
 
-    def collect_garbage(self):
+    def collect_garbage(self, timeout=None):
         # for each segment file on local disk
         # - segment assigned to me should not be gc'd
         # - segment not assigned to me with healthy service count <= minimum
@@ -897,8 +897,15 @@ class LocalSyncController(SyncController):
         #   and no local healthy service entry should be gc'd
         # - segment not assigned to me with healthy service count > minimum
         #   and has local healthy service entry should be gc'd
+        start = time.time()
         assignments = set(item.id for item in self.registry.segments_for_host(self.hostname))
         for filename in os.listdir(self.local_data):
+            elapsed = time.time() - start
+            if timeout and elapsed > timeout:
+                logging.info(
+                        'timed out after %.1f seconds (timeout=%.1f); there '
+                        'is more to gc next time', elapsed, timeout)
+                break
             if not filename.endswith('.sqlite'):
                 continue
             segment_id = filename[:-7]
