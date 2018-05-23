@@ -636,5 +636,72 @@ class TestLocalSyncController(unittest.TestCase):
         self.assertEqual(os.path.isfile(test_path), True)
         os.remove(test_path)
 
+    def test_collect_garbage(self):
+        # for each segment file on local disk
+        # - segment assigned to me should not be gc'd
+        # - segment not assigned to me with healthy service count <= minimum
+        #   should not be gc'd
+        # - segment not assigned to me with healthy service count == minimum
+        #   and no local healthy service entry should be gc'd
+        # - segment not assigned to me with healthy service count > minimum
+        #   and has local healthy service entry should be gc'd
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # create segment file
+            segment_id = 'test_collect_garbage'
+            filename = '%s.sqlite' % segment_id
+            path = os.path.join(tmp_dir, filename)
+            with open(path, 'wb'):
+                pass
+            assert os.path.exists(path)
+
+            # create controller
+            controller = self.make_fresh_controller()
+            controller.local_data = tmp_dir
+
+            # assign to me
+            assignment = sync.Assignment(self.rethinker, d={
+                'hash_ring': 'a', 'node': 'test01', 'segment': segment_id,
+                'assigned_on': r.now(), 'bytes': 9,
+                'remote_path': '/%s.sqlite' % segment_id})
+            assignment.save()
+
+            # - segment assigned to me should not be gc'd
+            controller.collect_garbage()
+            assert os.path.exists(path)
+
+            # - segment not assigned to me with healthy service count <= minimum
+            #   should not be gc'd
+            assignment.unassign()
+            # 0 healthy service ids
+            controller.collect_garbage()
+            assert os.path.exists(path)
+            # 1 healthy service id
+            controller.registry.heartbeat(pool='trough-read', node='test01', ttl=600, segment=segment_id)
+            controller.collect_garbage()
+            assert os.path.exists(path)
+
+            # - segment not assigned to me with healthy service count == minimum
+            #   and no local healthy service entry should be gc'd
+            # delete service entry
+            self.rethinker.table('services').get('trough-read:test01:%s' % segment_id).delete().run()
+            controller.registry.heartbeat(pool='trough-read', node='test02', ttl=600, segment=segment_id)
+            controller.collect_garbage()
+            assert not os.path.exists(path)
+
+            # recreate file
+            with open(path, 'wb'):
+                pass
+            assert os.path.exists(path)
+
+            # - segment not assigned to me with healthy service count > minimum
+            #   and has local healthy service entry should be gc'd
+            controller.registry.heartbeat(pool='trough-read', node='test01', ttl=600, segment=segment_id)
+            controller.registry.heartbeat(pool='trough-read', node='test02', ttl=600, segment=segment_id)
+            controller.collect_garbage()
+            assert not os.path.exists(path)
+            assert not self.rethinker.table('services').get('trough-read:test01:%s' % segment_id).run()
+            assert self.rethinker.table('services').get('trough-read:test02:%s' % segment_id).run()
+
+
 if __name__ == '__main__':
     unittest.main()

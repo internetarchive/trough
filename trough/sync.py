@@ -889,15 +889,43 @@ class LocalSyncController(SyncController):
         return {'remote_path': remote_path}
 
     def collect_garbage(self):
-        assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
-        for item in os.listdir(self.local_data):
-            if item.endswith('_COPYING_') or item.endswith("journal"):
+        # for each segment file on local disk
+        # - segment assigned to me should not be gc'd
+        # - segment not assigned to me with healthy service count <= minimum
+        #   should not be gc'd
+        # - segment not assigned to me with healthy service count == minimum
+        #   and no local healthy service entry should be gc'd
+        # - segment not assigned to me with healthy service count > minimum
+        #   and has local healthy service entry should be gc'd
+        assignments = set(item.id for item in self.registry.segments_for_host(self.hostname))
+        for filename in os.listdir(self.local_data):
+            if not filename.endswith('.sqlite'):
                 continue
-            if item.replace(".sqlite", "") not in assignments:
-                path = os.path.join(self.local_data, item)
-                logging.info("Deleting unassigned file: %s" % path)
-                os.remove(path)
-
+            segment_id = filename[:-7]
+            local_service_id = 'trough-read:%s:%s' % (self.hostname, segment_id)
+            if segment_id not in assignments:
+                segment = Segment(segment_id, 0, self.rethinker, self.services, self.registry)
+                healthy_service_ids = {service['id'] for service in segment.readable_copies()}
+                if local_service_id in healthy_service_ids:
+                    healthy_service_ids.remove(local_service_id)
+                    if len(healthy_service_ids) >= segment.minimum_assignments():
+                        logging.info(
+                                'segment %s has %s readable copies (minimum is %s) '
+                                'and is not assigned to %s, removing %s from the '
+                                'service registry',
+                                segment_id, len(healthy_service_ids),
+                                segment.minimum_assignments(), self.hostname,
+                                local_service_id)
+                        self.rethinker.table('services').get(local_service_id).delete().run()
+                if len(healthy_service_ids) >= segment.minimum_assignments():
+                    path = os.path.join(self.local_data, filename)
+                    logging.info(
+                            'segment %s now has %s readable copies (minimum '
+                            'is %s) and is not assigned to %s, deleting %s',
+                            segment_id, len(healthy_service_ids),
+                            segment.minimum_assignments(), self.hostname,
+                            path)
+                    os.remove(path)
 
 def get_controller(server_mode):
     logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])
