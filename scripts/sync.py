@@ -3,7 +3,6 @@ import trough
 from trough.settings import settings
 import logging
 import time
-import datetime
 
 if __name__ == '__main__':
     import argparse
@@ -19,12 +18,13 @@ if __name__ == '__main__':
     controller.check_config()
     while True:
         controller.check_health()
-        started = datetime.datetime.now()
+        started = time.time()
         controller.sync()
         if not args.server:
-            controller.collect_garbage()
-        loop_duration = datetime.datetime.now() - started
-        sleep_time = settings['SYNC_LOOP_TIMING'] - loop_duration.total_seconds()
-        sleep_time = sleep_time if sleep_time > 0 else 0
-        logging.info('Sleeping for %s seconds' % round(sleep_time))
+            elapsed = time.time() - started
+            gc_timeout = max(settings['SYNC_LOOP_TIMING'] - elapsed - 20, 0)
+            controller.collect_garbage(timeout=gc_timeout)
+        elapsed = time.time() - started
+        sleep_time = max(settings['SYNC_LOOP_TIMING'] - elapsed, 0)
+        logging.info('Sleeping for %.1f seconds' % sleep_time)
         time.sleep(sleep_time)
