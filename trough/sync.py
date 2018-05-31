@@ -151,8 +151,8 @@ def init(rethinker):
         logging.info('default schema already exists %r', default_schema)
     try:
         rethinker.table('services').index_create('segment').run()
-        rethinker.table('services').index_wait('segment').run()
         rethinker.table('services').index_create('role').run()
+        rethinker.table('services').index_wait('segment').run()
         rethinker.table('services').index_wait('role').run()
     except Exception as e:
         pass
@@ -872,15 +872,17 @@ class LocalSyncController(SyncController):
             raise Exception("Unexpected result %r from rethinkdb query %r" % (result, query))
 
         try:
-            assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
-            remote_path = assignment.remote_path
-        except r.errors.ReqlNonExistenceError:
-            remote_path = os.path.join(self.hdfs_path, segment_id[:3], '%s.sqlite' % segment_id)
-        segment = Segment(
-                segment_id, size=-1, rethinker=self.rethinker,
-                services=self.services, registry=self.registry,
-                remote_path=remote_path)
-        try:
+            try:
+                assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
+                remote_path = assignment['remote_path']
+            except r.errors.ReqlNonExistenceError:
+                remote_path = os.path.join(self.hdfs_path, segment_id[:3], '%s.sqlite' % segment_id)
+
+            segment = Segment(
+                    segment_id, size=-1, rethinker=self.rethinker,
+                    services=self.services, registry=self.registry,
+                    remote_path=remote_path)
+
             self.do_segment_promotion(segment)
         finally:
             self.rethinker.table('lock')\
