@@ -20,7 +20,7 @@ setup(
     ],
     install_requires=[
         'protobuf==3.1.0.post1',
-        'PyYAML==3.12',
+        'PyYAML==3.13',
         'requests==2.18.4',
         'six==1.10.0',
         'snakebite==2.8.2-python3',
