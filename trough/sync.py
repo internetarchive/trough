@@ -837,10 +837,10 @@ class LocalSyncController(SyncController):
         return result_dict
 
     def do_segment_promotion(self, segment):
+        # make "online backup" of segment in tmp space (see https://www.sqlite.org/backup.html)
+        # push to hdfs
+        # update mtime of local segment (see comment below)
         import sqlitebck
-        # copy file to temporary location
-        # spawn an HDFS process to put the temporary file upstream
-        # unset the promotion flag on the write record
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
             source = sqlite3.connect(segment.local_path())
@@ -851,12 +851,19 @@ class LocalSyncController(SyncController):
             hdfs.mkdir(os.path.dirname(segment.remote_path))
             hdfs.put(temp_file.name, segment.remote_path)
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
+        # update mtime of local segment so that sync local doesn't think the
+        # segment we just pushed to hdfs is newer (if it did, it would pull it
+        # down and decommission its writable copy)
+        # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
+        os.utime(segment.local_path(), times=(time.time(), time.time()))
 
     def promote_writable_segment_upstream(self, segment_id):
-        # retrieve write lock, ensuring that the segment is under promotion
-        # spawn a thread to perform the promotion
-
-        # return a response that the promotion is in progress
+        # load write lock, check segment is writable and not under promotion
+        # update write lock to mark segment as being under promotion
+        # get hdfs path from rethinkdb, use default if not set
+        # push segment to hdfs
+        # unset under_promotion flag
+        # return response with hdfs path
         query = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
             .update({'under_promotion': True}, return_changes=True)
