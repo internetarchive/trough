@@ -32,6 +32,7 @@ setup(
         'flask==0.12.2',
         'sqlitebck==1.2.1',
         'hdfs3==0.2.0',
+        'prettytable==0.7.2',
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
