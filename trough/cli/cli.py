@@ -47,9 +47,11 @@ class TroughRepl(cmd.Cmd):
     def do_show(self, argument):
         '''SHOW command. like MySQL. Currently only
         SHOW TABLES
-        is implemented.'''
-        if argument.lower() == 'tables':
+        SHOW CREATE TABLE\nare implemented.'''
+        if argument[:6].lower() == 'tables':
             self.do_select("name from sqlite_master where type = 'table';")
+        if argument[:12].lower() == 'create table':
+            self.do_select("sql from sqlite_master where type = 'table' and name = '%s';" % argument[12:].strip())
 
     def do_pretty(self, ignore):
         '''Toggle pretty-printed results'''
