@@ -5,6 +5,8 @@ import os
 import cmd
 import logging
 import readline
+from prettytable import PrettyTable
+import datetime
 
 HISTORY_FILE = os.path.expanduser('~/.trough_history')
 
@@ -26,6 +28,7 @@ class BetterArgumentDefaultsHelpFormatter(
             return argparse.ArgumentDefaultsHelpFormatter._get_help_string(self, action)
 
 class TroughRepl(cmd.Cmd):
+    intro = 'Welcome to the trough shell. Type help or ? to list commands.\n'
     logger = logging.getLogger('trough.client.TroughRepl')
 
     def __init__(
@@ -36,13 +39,40 @@ class TroughRepl(cmd.Cmd):
         self.segment_id = segment_id
         self.writable = writable
         self.schema_id = schema_id
+        self.pretty_print = True
 
         self.prompt = 'trough:%s(%s)> ' % (
                 segment_id, 'rw' if writable else 'ro')
 
+    def do_pretty(self, ignore):
+        '''Toggle pretty-printed results'''
+        self.pretty_print = not self.pretty_print
+        print('pretty print %s' % ("on" if self.pretty_print else "off"))
+        
     def do_select(self, line):
+        '''Send a query to the currently-connected trough segment.
+
+        Syntax: select...
+
+        Example: Send query "select * from host_statistics;" to server
+        trough> query select * from host_statistics;
+        '''
+        start = datetime.datetime.now()
         result = self.cli.read(self.segment_id, 'select ' + line)
-        print(result)
+        end = datetime.datetime.now()
+        if self.pretty_print:
+            header = result[0].keys()
+            pt = PrettyTable(header)
+            for item in header:
+                pt.align[item] = "l"
+            pt.padding_width = 1
+            for row in result:
+                pt.add_row([row.get(column) for column in header])
+            print(pt)
+        else:
+            print(result)
+        print("%s results in %s" % (len(result), end - start))
+
     do_SELECT = do_select
 
     def emptyline(self):
@@ -59,7 +89,9 @@ class TroughRepl(cmd.Cmd):
 
     def do_quit(self, args):
         if not args:
+            print('bye!')
             return True
+    do_EOF = do_quit
     do_exit = do_quit
     do_bye = do_quit
 
@@ -72,6 +104,7 @@ def trough_client(argv=None):
             '-u', '--rethinkdb-trough-db-url',
             default='rethinkdb://localhost/trough_configuration')
     arg_parser.add_argument('-w', '--writable', action='store_true')
+    arg_parser.add_argument('-v', '--verbose', action='store_true')
     arg_parser.add_argument(
             '-s', '--schema', default='default',
             help='schema id for new segment')
@@ -79,7 +112,7 @@ def trough_client(argv=None):
     args = arg_parser.parse_args(args=argv[1:])
 
     logging.basicConfig(
-            stream=sys.stdout, level=logging.DEBUG, format=(
+            stream=sys.stdout, level=logging.DEBUG if args.verbose else logging.WARN, format=(
                 '%(asctime)s %(levelname)s %(name)s.%(funcName)s'
                 '(%(filename)s:%(lineno)d) %(message)s'))
 
