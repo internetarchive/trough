@@ -1,7 +1,7 @@
 '''
-warcprox/trough.py - trough client code
+trough/client.py - trough client code
 
-Copyright (C) 2017 Internet Archive
+Copyright (C) 2017-2018 Internet Archive
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -32,7 +32,7 @@ import threading
 import time
 
 class TroughClient(object):
-    logger = logging.getLogger("warcprox.trough.TroughClient")
+    logger = logging.getLogger('trough.client.TroughClient')
 
     def __init__(self, rethinkdb_trough_db_url, promotion_interval=None):
         '''
@@ -169,9 +169,12 @@ class TroughClient(object):
     def write(self, segment_id, sql_tmpl, values=(), schema_id='default'):
         write_url = self.write_url(segment_id, schema_id)
         sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
+        sql_bytes = sql.encode('utf-8')
 
         try:
-            response = requests.post(write_url, sql, timeout=600)
+            response = requests.post(
+                    write_url, sql_bytes, timeout=600,
+                    headers={'content-type': 'application/sql;charset=utf-8'})
             if response.status_code != 200:
                 raise Exception(
                     'Received %s: %r in response to POST %s with data %r' % (
@@ -199,8 +202,11 @@ class TroughClient(object):
         if not read_url:
             return None
         sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
+        sql_bytes = sql.encode('utf-8')
         try:
-            response = requests.post(read_url, sql, timeout=600)
+            response = requests.post(
+                    read_url, sql_bytes, timeout=600,
+                    headers={'content-type': 'application/sql;charset=utf-8'})
         except:
             self._read_url_cache.pop(segment_id, None)
             self.logger.error(
