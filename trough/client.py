@@ -30,6 +30,7 @@ import rethinkdb as r
 import datetime
 import threading
 import time
+import collections
 
 class TroughClient(object):
     logger = logging.getLogger('trough.client.TroughClient')
@@ -149,6 +150,21 @@ class TroughClient(object):
         else:
             return None
 
+    def readable_segments(self):
+        reql = self.rr.table('services').filter(
+                {'role':'trough-read'}).filter(
+                        lambda svc: r.now().sub(
+                            svc['last_heartbeat']).lt(svc['ttl'])
+                        ).limit(10000) # .order_by('segment')
+        self.logger.debug('querying rethinkdb: %r', reql)
+        results = reql.run()
+        for result in reql.run():
+            yield collections.OrderedDict([
+                    ('segment', result['segment']),
+                    ('url', result['url']),
+                    ('first_heartbeat', result['first_heartbeat']),
+                    ('last_heartbeat', result['last_heartbeat'])])
+
     def write_url(self, segment_id, schema_id='default'):
         if not segment_id in self._write_url_cache:
             self._write_url_cache[segment_id] = self.write_url_nocache(
@@ -200,25 +216,23 @@ class TroughClient(object):
     def read(self, segment_id, sql_tmpl, values=()):
         read_url = self.read_url(segment_id)
         if not read_url:
-            return None
+            raise Exception(
+                    'read url not found for segment %s (no such segment?)' % segment_id)
         sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
         sql_bytes = sql.encode('utf-8')
         try:
             response = requests.post(
                     read_url, sql_bytes, timeout=600,
                     headers={'content-type': 'application/sql;charset=utf-8'})
-        except:
+        except Exception as e:
             self._read_url_cache.pop(segment_id, None)
-            self.logger.error(
-                    'problem with trough read url %r', read_url, exc_info=True)
-            return None
+            raise
         if response.status_code != 200:
             self._read_url_cache.pop(segment_id, None)
-            self.logger.warn(
-                    'unexpected response %r %r %r from %r to sql=%r',
-                    response.status_code, response.reason, response.text,
-                    read_url, sql)
-            return None
+            raise Exception(
+                    'unexpected response %r %r %r from %r to sql=%r' % (
+                        response.status_code, response.reason, response.text,
+                        read_url, sql))
         self.logger.trace(
                 'got %r from posting query %r to %r', response.text, sql,
                 read_url)
