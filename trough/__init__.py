@@ -1,4 +1,4 @@
-# from . import settings, read, write, sync
+from . import settings, read, write, sync
 
 # monkey-patch log level TRACE
 import logging

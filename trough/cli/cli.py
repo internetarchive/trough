@@ -44,6 +44,13 @@ class TroughRepl(cmd.Cmd):
         self.prompt = 'trough:%s(%s)> ' % (
                 segment_id, 'rw' if writable else 'ro')
 
+    def do_show(self, argument):
+        '''SHOW command. like MySQL. Currently only
+        SHOW TABLES
+        is implemented.'''
+        if argument.lower() == 'tables':
+            self.do_select("name from sqlite_master where type = 'table';")
+
     def do_pretty(self, ignore):
         '''Toggle pretty-printed results'''
         self.pretty_print = not self.pretty_print

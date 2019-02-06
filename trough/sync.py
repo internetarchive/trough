@@ -19,7 +19,6 @@ import contextlib
 from uhashring import HashRing
 import ujson
 from hdfs3 import HDFileSystem
-import sqlitebck
 import threading
 import tempfile
 
