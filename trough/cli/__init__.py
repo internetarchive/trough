@@ -55,8 +55,8 @@ class TroughRepl(cmd.Cmd):
         elif argument[:12].lower() == 'create table':
             self.do_select(
                     "sql from sqlite_master where type = 'table' "
-                    "and name = '%s';" % argument[12:].strip())
-        elif argument.strip().lower() == 'segments':
+                    "and name = '%s';" % argument[12:].replace(';', '').strip())
+        elif argument.replace(';', '').strip().lower() == 'segments':
             try:
                 start = datetime.datetime.now()
                 result = self.cli.readable_segments()
@@ -68,25 +68,46 @@ class TroughRepl(cmd.Cmd):
         else:
             self.do_help('show')
 
+    import sys
+
+    def table(self, dictlist, outfile=sys.stdout):
+        # calculate lengths for each column
+        lengths = [ max(list(map(lambda x:len(str(x.get(k))), dictlist)) + [len(str(k))]) for k in dictlist[0].keys() ]
+        # compose a formatter-string
+        lenstr = "| "+" | ".join("{:<%s}" % m for m in lengths) + " |"
+        # print header and borders
+        border = "+" + "+".join(["-" * (l + 2) for l in lengths]) + "+"
+        print(border, file=outfile)
+        header = lenstr.format(*dictlist[0].keys())
+        print(header, file=outfile)
+        print(border, file=outfile)
+        # print rows and borders
+        for item in dictlist:
+            formatted = lenstr.format(*[str(value) for value in item.values()])
+            print(formatted, file=outfile)
+        print(border, file=outfile)
+                                                                    
     def display(self, result):
         if not result:
             print('None')
         elif self.pretty_print:
             n_rows = 0
-            result = iter(result)
-            row = next(result)
-            header = row.keys()
-            pt = PrettyTable(header)
-            for item in header:
-                pt.align[item] = "l"
-            pt.padding_width = 1
-            pt.add_row([row.get(column) for column in header])
-            n_rows += 1
-            for row in result:
-                pt.add_row([row.get(column) for column in header])
-                n_rows += 1
-            pydoc.pager(str(pt))
-            return n_rows
+            result = list(result)
+            #result = iter(result)
+            #row = next(result)
+            self.table(result)
+            #header = row.keys()
+            #pt = PrettyTable(header)
+            #for item in header:
+            #    pt.align[item] = "l"
+            #pt.padding_width = 1
+            #pt.add_row([row.get(column) for column in header])
+            #n_rows += 1
+            #for row in result:
+                #pt.add_row([row.get(column) for column in header])
+                #n_rows += 1
+            #pydoc.pager(str(pt))
+            return len(result)
         else:
             pydoc.pager(result)
             return len(result)

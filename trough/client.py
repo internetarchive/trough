@@ -155,7 +155,7 @@ class TroughClient(object):
                 {'role':'trough-read'}).filter(
                         lambda svc: r.now().sub(
                             svc['last_heartbeat']).lt(svc['ttl'])
-                        ).limit(10000) # .order_by('segment')
+                        )# .order_by('segment')
         self.logger.debug('querying rethinkdb: %r', reql)
         results = reql.run()
         for result in reql.run():

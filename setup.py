@@ -31,7 +31,7 @@ setup(
         'doublethink>=0.2.0.dev84',
         'uhashring==0.7',
         'flask==0.12.2',
-        'sqlitebck==1.2.1',
+#        'sqlitebck==1.2.1',
         'hdfs3==0.2.0',
         'prettytable',
     ],
