@@ -49,17 +49,30 @@ class TroughRepl(cmd.Cmd):
         '''SHOW command, like MySQL. Available subcommands:
         - SHOW TABLES
         - SHOW CREATE TABLE
-        - SHOW SEGMENTS'''
-        if argument[:6].lower() == 'tables':
+        - SHOW SCHEMA schema-name
+        - SHOW SCHEMAS
+        - SHOW SEGMENTS [MATCHING 'regexp']'''
+        argument = argument.replace(";", "").lower()
+        if argument[:6] == 'tables':
             self.do_select("name from sqlite_master where type = 'table';")
-        elif argument[:12].lower() == 'create table':
+        elif argument[:12] == 'create table':
             self.do_select(
                     "sql from sqlite_master where type = 'table' "
                     "and name = '%s';" % argument[12:].replace(';', '').strip())
-        elif argument.replace(';', '').strip().lower() == 'segments':
+        elif argument[:7] == 'schemas':
+            result = self.cli.schemas()
+            self.display(result)
+        elif argument[:7] == 'schema ':
+            name = argument[7:].strip()
+            result = self.cli.schema(name)
+            self.display(result)
+        elif argument[:8] == 'segments':
+            regex = None
+            if "matching" in argument:
+                regex = argument.split("matching")[-1].strip().strip('"').strip("'")
             try:
                 start = datetime.datetime.now()
-                result = self.cli.readable_segments()
+                result = self.cli.readable_segments(regex=regex)
                 end = datetime.datetime.now()
                 n_rows = self.display(result)
                 print("%s results in %s" % (n_rows, end - start))

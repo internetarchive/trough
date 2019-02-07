@@ -149,13 +149,29 @@ class TroughClient(object):
             return results[0]['url']
         else:
             return None
-
-    def readable_segments(self):
+    def schemas(self):
+        reql = self.rr.table('schema')
+        for result in reql.run():
+            yield collections.OrderedDict([
+                ('name', result['id']),
+            ])
+    def schema(self, id):
+        reql = self.rr.table('schema').get(id)
+        result = reql.run()
+        if result:
+            return [collections.OrderedDict([
+                (id, result['sql']),
+            ])]
+        else:
+            return None
+    def readable_segments(self, regex=None):
         reql = self.rr.table('services').filter(
                 {'role':'trough-read'}).filter(
                         lambda svc: r.now().sub(
                             svc['last_heartbeat']).lt(svc['ttl'])
                         )# .order_by('segment')
+        if regex:
+            reql = reql.filter(lambda svc: svc['segment'].match(regex))
         self.logger.debug('querying rethinkdb: %r', reql)
         results = reql.run()
         for result in reql.run():
