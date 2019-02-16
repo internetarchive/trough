@@ -5,11 +5,13 @@ import os
 import cmd
 import logging
 import readline
-from prettytable import PrettyTable
 import datetime
-import pydoc
 import re
-import concurrent.futures
+from aiohttp import ClientSession
+import asyncio
+from contextlib import contextmanager
+import subprocess
+import io
 
 HISTORY_FILE = os.path.expanduser('~/.trough_history')
 
@@ -44,61 +46,51 @@ class TroughRepl(cmd.Cmd):
         self.schema_id = schema_id
         self.pretty_print = True
         self.show_segment_in_result = False
-        self.workers = 20
-        logging.warn('populating segment cache...')
-        self._segment_cache = set(str(item) for item in self.cli.rr.table('services')['segment'].run())
-        logging.warn('done. %s segments' % len(self._segment_cache))
+        self._segment_cache = None
         self.update_prompt()
-                        
-    import sys
 
-    def table(self, dictlist, outfile=sys.stdout):
+    def table(self, dictlist):
+        s = ''
         # calculate lengths for each column
-        lengths = [ max(list(map(lambda x:len(str(x.get(k))), dictlist)) + [len(str(k))]) for k in dictlist[0].keys() ]
+        lengths = [max(list(map(lambda x:len(str(x.get(k))), dictlist)) + [len(str(k))]) for k in dictlist[0].keys()]
         # compose a formatter-string
-        lenstr = "| "+" | ".join("{:<%s}" % m for m in lengths) + " |"
+        lenstr = "| "+" | ".join("{:<%s}" % m for m in lengths) + " |\n"
         # print header and borders
-        border = "+" + "+".join(["-" * (l + 2) for l in lengths]) + "+"
-        print(border, file=outfile)
+        border = "+" + "+".join(["-" * (l + 2) for l in lengths]) + "+\n"
+        s += border
         header = lenstr.format(*dictlist[0].keys())
-        print(header, file=outfile)
-        print(border, file=outfile)
+        s += header
+        s += border
         # print rows and borders
         for item in dictlist:
             formatted = lenstr.format(*[str(value) for value in item.values()])
-            print(formatted, file=outfile)
-        print(border, file=outfile)
-                                                                    
+            s += formatted
+        s += border
+        return s
+
     def display(self, result):
+        if self.pager_pipe:
+            out = self.pager_pipe
+        else:
+            out = sys.stdout
+
         if not result:
-            print('None')
+            print('<no results>', file=out)
         elif self.pretty_print:
             n_rows = 0
             result = list(result)
-            #result = iter(result)
-            #row = next(result)
-            self.table(result)
-            #header = row.keys()
-            #pt = PrettyTable(header)
-            #for item in header:
-            #    pt.align[item] = "l"
-            #pt.padding_width = 1
-            #pt.add_row([row.get(column) for column in header])
-            #n_rows += 1
-            #for row in result:
-                #pt.add_row([row.get(column) for column in header])
-                #n_rows += 1
-            #pydoc.pager(str(pt))
+            print(self.table(result), end='', file=out)
             return len(result)
         else:
-            pydoc.pager(result)
+            print(result, file=out)
             return len(result)
 
     def update_prompt(self):
         self.prompt = 'trough:%s(%s)> ' % (
-        self.segments[0] if len(self.segments) == 1 else '[%s segments]' % len(self.segments), 'rw' if self.writable else 'ro')
+                self.segments[0] if len(self.segments) == 1
+                else '[%s segments]' % len(self.segments),
+                'rw' if self.writable else 'ro')
 
-        
     def do_show(self, argument):
         '''SHOW command, like MySQL. Available subcommands:
         - SHOW TABLES
@@ -140,22 +132,39 @@ class TroughRepl(cmd.Cmd):
 
     def do_connect(self, argument):
         '''Connect to one or more trough "segments" (sqlite databases)'''
-        # for each connection string
-        splitter = re.compile(" +")
-        segment_patterns = splitter.split(argument)
-        # look for a regex match
-        matcher = re.compile("|".join(segment_patterns))
-        # create a connection for each segment returned
-        self.segments = [segment for segment in self._segment_cache if matcher.match(segment)]
-        # if we only have one connection, don't bother printing the segment
+        segment_re = re.sub(' +', '|', argument)
+        seg_urls = self.cli.read_urls_for_regex(segment_re)
+        self.segments = seg_urls.keys()
         self.show_segment_in_result = len(self.segments) > 1
-        # update the prompt!
         self.update_prompt()
-    
+
     def do_pretty(self, ignore):
         '''Toggle pretty-printed results'''
         self.pretty_print = not self.pretty_print
         print('pretty print %s' % ("on" if self.pretty_print else "off"))
+
+    async def async_select(self, segment, query):
+        result = await self.cli.async_read(segment, query)
+        print('+++++ results from segment %s +++++' % segment,
+              file=self.pager_pipe or sys.stdout)
+        return self.display(result) # returns number of rows
+
+    async def async_fanout(self, query):
+        tasks = []
+        for segment in self.segments:
+            task = asyncio.ensure_future(self.async_select(segment, query))
+            tasks.append(task)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, BaseException):
+                try:
+                    raise result
+                except:
+                    self.logger.warning(
+                            'async_fanout results[%r] is an exception:',
+                            i, exc_info=True)
+            else:
+                self.n_rows += result
 
     def do_select(self, line):
         '''Send a query to the currently-connected trough segment.
@@ -166,28 +175,27 @@ class TroughRepl(cmd.Cmd):
         trough> query select * from host_statistics;
         '''
         query = 'select ' + line
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
+        with self.pager():
             try:
-                start = datetime.datetime.now()
-                future_to_args = {executor.submit(self.cli.read, segment, query): (segment, query) for segment in self.segments }
-                n_rows = 0
-                for future in concurrent.futures.as_completed(future_to_args):
-                    segment, query = future_to_args[future]
-                    try:
-                        result = future.result()
-                        if self.show_segment_in_result:
-                            #import pdb; pdb.set_trace()
-                            result = list(result)
-                            for row in result:
-                                row.update({'__segment': segment})
-                    except Exception as e:
-                        logging.error('Error executing "%s" against %s: %s' % (query, segment, e))
-                    else:
-                        n_rows += self.display(result)
-                end = datetime.datetime.now()
-                print("%s results in %s" % (n_rows, end - start))
+                self.n_rows = 0
+                loop = asyncio.get_event_loop()
+                future = asyncio.ensure_future(self.async_fanout(query))
+                loop.run_until_complete(future)
+                # XXX not sure how to measure time not including user time
+                # scrolling around in `less`
+                print('%s results' % self.n_rows, file=self.pager_pipe)
             except Exception as e:
                 self.logger.error(e, exc_info=True)
+
+    @contextmanager
+    def pager(self):
+        cmd = os.environ.get('PAGER') or '/usr/bin/less -nFSX'
+        with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
+            with io.TextIOWrapper(
+                    proc.stdin, errors='backslashreplace') as self.pager_pipe:
+                yield
+            proc.wait()
+        self.pager_pipe = None
 
     def emptyline(self):
         pass
@@ -236,7 +244,8 @@ def trough_client(argv=None):
     args = arg_parser.parse_args(args=argv[1:])
 
     logging.basicConfig(
-            stream=sys.stdout, level=logging.DEBUG if args.verbose else logging.WARN, format=(
+            stream=sys.stdout,
+            level=logging.DEBUG if args.verbose else logging.WARN, format=(
                 '%(asctime)s %(levelname)s %(name)s.%(funcName)s'
                 '(%(filename)s:%(lineno)d) %(message)s'))
 

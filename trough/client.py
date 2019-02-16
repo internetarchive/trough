@@ -1,7 +1,7 @@
 '''
 trough/client.py - trough client code
 
-Copyright (C) 2017-2018 Internet Archive
+Copyright (C) 2017-2019 Internet Archive
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -31,6 +31,7 @@ import datetime
 import threading
 import time
 import collections
+from aiohttp import ClientSession
 
 class TroughClient(object):
     logger = logging.getLogger('trough.client.TroughClient')
@@ -149,12 +150,33 @@ class TroughClient(object):
             return results[0]['url']
         else:
             return None
+
+    def read_urls_for_regex(self, regex):
+        '''
+        Looks up read urls for segments matching `regex`.
+        Populates `self._read_url_cache` and returns dictionary
+        `{segment: url}`
+        '''
+        d = {}
+        reql = self.rr.table('services')\
+                .filter({'role': 'trough-read'})\
+                .filter(r.row.has_fields('segment'))\
+                .filter(lambda svc: svc['segment'].coerce_to('string').match(regex))\
+                .filter(lambda svc: r.now().sub(svc['last_heartbeat']).lt(svc['ttl']))
+        self.logger.debug('querying rethinkdb: %r', reql)
+        results = reql.run()
+        for result in results:
+            d[result['segment']] = result['url']
+            self._read_url_cache[result['segment']] = result['url']
+        return d
+
     def schemas(self):
         reql = self.rr.table('schema')
         for result in reql.run():
             yield collections.OrderedDict([
                 ('name', result['id']),
             ])
+
     def schema(self, id):
         reql = self.rr.table('schema').get(id)
         result = reql.run()
@@ -164,6 +186,7 @@ class TroughClient(object):
             ])]
         else:
             return None
+
     def readable_segments(self, regex=None):
         reql = self.rr.table('services').filter(
                 {'role':'trough-read'}).filter(
@@ -254,6 +277,27 @@ class TroughClient(object):
                 read_url)
         results = json.loads(response.text)
         return results
+
+    async def async_read(self, segment_id, sql_tmpl, values=()):
+        read_url = self.read_url(segment_id)
+        if not read_url:
+            raise Exception(
+                    'read url not found for segment %s (no such segment?)' % segment_id)
+        sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
+        sql_bytes = sql.encode('utf-8')
+
+        async with ClientSession() as session:
+            async with session.post(
+                    read_url, data=sql_bytes, headers={
+                        'content-type': 'application/sql;charset=utf-8'}) as res:
+                if res.status != 200:
+                    self._read_url_cache.pop(segment_id, None)
+                    raise Exception(
+                            'unexpected response %r %r %r from %r to sql=%r' % (
+                                response.status_code, response.reason, response.text,
+                                read_url, sql))
+                results = list(await res.json())
+                return results
 
     def schema_exists(self, schema_id):
         url = os.path.join(self.segment_manager_url(), 'schema', schema_id)
