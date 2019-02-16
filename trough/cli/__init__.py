@@ -55,7 +55,9 @@ class TroughRepl(cmd.Cmd):
         max_lengths = {}
         for row in dictlist:
             for k, v in row.items():
-                max_lengths[k] = max(max_lengths.get(k, 0), len(k), len(str(v)))
+                max_lengths[k] = max(
+                        max_lengths.get(k, 0), len(k),
+                        len(str(v) if v is not None else '<null>'))
 
         if not self.column_keys:
             column_keys = list(dictlist[0].keys())
@@ -164,7 +166,7 @@ class TroughRepl(cmd.Cmd):
             return
 
         if argument[:8] == 'matching':
-            seg_urls = self.cli.read_urls_for_regex(segment_re)
+            seg_urls = self.cli.read_urls_for_regex(argument[8:].lstrip())
             self.segments = seg_urls.keys()
         else:
             self.segments = argument.split()
@@ -177,8 +179,11 @@ class TroughRepl(cmd.Cmd):
 
     async def async_select(self, segment, query):
         result = await self.cli.async_read(segment, query)
-        print('+++++ results from segment %s +++++' % segment,
-              file=self.pager_pipe or sys.stdout)
+        try:
+            print('+++++ results from segment %s +++++' % segment,
+                  file=self.pager_pipe or sys.stdout)
+        except BrokenPipeError:
+            pass
         return self.display(result) # returns number of rows
 
     async def async_fanout(self, query):
@@ -215,7 +220,7 @@ class TroughRepl(cmd.Cmd):
                 loop.run_until_complete(future)
                 # XXX not sure how to measure time not including user time
                 # scrolling around in `less`
-                print('%s results' % self.n_rows, file=self.pager_pipe)
+                print('%s total results' % self.n_rows, file=self.pager_pipe)
             except Exception as e:
                 self.logger.error(e, exc_info=True)
 
