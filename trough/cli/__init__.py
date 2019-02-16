@@ -246,7 +246,7 @@ def trough_client(argv=None):
     arg_parser.add_argument(
             '-s', '--schema', default='default',
             help='schema id for new segment')
-    arg_parser.add_argument('segment')
+    arg_parser.add_argument('segment', nargs='+')
     args = arg_parser.parse_args(args=argv[1:])
 
     logging.basicConfig(
@@ -256,7 +256,7 @@ def trough_client(argv=None):
                 '(%(filename)s:%(lineno)d) %(message)s'))
 
     cli = trough.client.TroughClient(args.rethinkdb_trough_db_url)
-    shell = TroughRepl(cli, [args.segment], args.writable, args.schema)
+    shell = TroughRepl(cli, args.segment, args.writable, args.schema)
 
     if os.path.exists(HISTORY_FILE):
         readline.read_history_file(HISTORY_FILE)
