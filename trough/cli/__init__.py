@@ -74,16 +74,19 @@ class TroughRepl(cmd.Cmd):
         else:
             out = sys.stdout
 
-        if not result:
-            print('<no results>', file=out)
-        elif self.pretty_print:
-            n_rows = 0
-            result = list(result)
-            print(self.table(result), end='', file=out)
-            return len(result)
-        else:
-            print(result, file=out)
-            return len(result)
+        try:
+            if not result:
+                print('<no results>', file=out)
+            elif self.pretty_print:
+                n_rows = 0
+                result = list(result)
+                print(self.table(result), end='', file=out)
+                return len(result)
+            else:
+                print(result, file=out)
+                return len(result)
+        except BrokenPipeError:
+            pass  # user quit the pager
 
     def update_prompt(self):
         self.prompt = 'trough:%s(%s)> ' % (
@@ -163,7 +166,7 @@ class TroughRepl(cmd.Cmd):
                     self.logger.warning(
                             'async_fanout results[%r] is an exception:',
                             i, exc_info=True)
-            else:
+            elif result:
                 self.n_rows += result
 
     def do_select(self, line):
@@ -190,11 +193,14 @@ class TroughRepl(cmd.Cmd):
     @contextmanager
     def pager(self):
         cmd = os.environ.get('PAGER') or '/usr/bin/less -nFSX'
-        with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
-            with io.TextIOWrapper(
-                    proc.stdin, errors='backslashreplace') as self.pager_pipe:
-                yield
-            proc.wait()
+        try:
+            with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
+                with io.TextIOWrapper(
+                        proc.stdin, errors='backslashreplace') as self.pager_pipe:
+                        yield
+                proc.wait()
+        except BrokenPipeError:
+            pass # user quit the pager
         self.pager_pipe = None
 
     def emptyline(self):
