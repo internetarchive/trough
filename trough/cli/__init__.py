@@ -45,8 +45,7 @@ class TroughRepl(cmd.Cmd):
         self.writable = writable
         self.schema_id = schema_id
         self.pretty_print = True
-        self.show_segment_in_result = False
-        self._segment_cache = None
+        self.pager_pipe = None
         self.update_prompt()
 
     def table(self, dictlist):
@@ -95,7 +94,8 @@ class TroughRepl(cmd.Cmd):
                 'rw' if self.writable else 'ro')
 
     def do_show(self, argument):
-        '''SHOW command, like MySQL. Available subcommands:
+        '''
+        SHOW command, like MySQL. Available subcommands:
         - SHOW TABLES
         - SHOW CREATE TABLE
         - SHOW CONNECTIONS
@@ -113,7 +113,7 @@ class TroughRepl(cmd.Cmd):
             result = self.cli.schemas()
             self.display(result)
         elif argument[:11] == 'connections':
-            self.display([{'connection': segment } for segment in self.segments])
+            self.display([{'connection': segment} for segment in self.segments])
         elif argument[:7] == 'schema ':
             name = argument[7:].strip()
             result = self.cli.schema(name)
@@ -134,11 +134,25 @@ class TroughRepl(cmd.Cmd):
             self.do_help('show')
 
     def do_connect(self, argument):
-        '''Connect to one or more trough "segments" (sqlite databases)'''
-        segment_re = re.sub(' +', '|', argument)
-        seg_urls = self.cli.read_urls_for_regex(segment_re)
-        self.segments = seg_urls.keys()
-        self.show_segment_in_result = len(self.segments) > 1
+        '''
+        Connect to one or more trough "segments" (sqlite databases).
+        Usage:
+
+        - CONNECT segment [segment...]
+        - CONNECT MATCHING <regex>
+
+        See also SHOW CONNECTIONS
+        '''
+        argument = re.sub(r';+$', '', argument.strip().lower())
+        if not argument:
+            self.do_help('connect')
+            return
+
+        if argument[:8] == 'matching':
+            seg_urls = self.cli.read_urls_for_regex(segment_re)
+            self.segments = seg_urls.keys()
+        else:
+            self.segments = argument.split()
         self.update_prompt()
 
     def do_pretty(self, ignore):
