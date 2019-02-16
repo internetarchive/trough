@@ -49,20 +49,35 @@ class TroughRepl(cmd.Cmd):
         self.update_prompt()
 
     def table(self, dictlist):
+        assert dictlist
         s = ''
         # calculate lengths for each column
-        lengths = [max(list(map(lambda x:len(str(x.get(k))), dictlist)) + [len(str(k))]) for k in dictlist[0].keys()]
+        max_lengths = {}
+        for row in dictlist:
+            for k, v in row.items():
+                max_lengths[k] = max(max_lengths.get(k, 0), len(k), len(str(v)))
+
+        if not self.column_keys:
+            column_keys = list(dictlist[0].keys())
+            # column order: # id first, then shortest column, next biggest, etc
+            # with column name alphabetical as tiebreaker
+            column_keys.sort(key=lambda k: '!' if k == 'id' \
+                                             else '%09d%s' % (max_lengths[k], k))
+            self.column_keys = column_keys
+
         # compose a formatter-string
-        lenstr = "| "+" | ".join("{:<%s}" % m for m in lengths) + " |\n"
+        lenstr = "| "+" | ".join("{:<%s}" % max_lengths[k] for k in self.column_keys) + " |\n"
         # print header and borders
-        border = "+" + "+".join(["-" * (l + 2) for l in lengths]) + "+\n"
+        border = "+" + "+".join(["-" * (max_lengths[k] + 2) for k in self.column_keys]) + "+\n"
         s += border
-        header = lenstr.format(*dictlist[0].keys())
+        header = lenstr.format(*self.column_keys)
         s += header
         s += border
         # print rows and borders
-        for item in dictlist:
-            formatted = lenstr.format(*[str(value) for value in item.values()])
+        for row in dictlist:
+            formatted = lenstr.format(*[
+                str(row[k]) if row[k] is not None else '<null>'
+                for k in self.column_keys])
             s += formatted
         s += border
         return s
@@ -206,12 +221,13 @@ class TroughRepl(cmd.Cmd):
 
     @contextmanager
     def pager(self):
+        self.column_keys = None
         cmd = os.environ.get('PAGER') or '/usr/bin/less -nFSX'
         try:
             with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
                 with io.TextIOWrapper(
                         proc.stdin, errors='backslashreplace') as self.pager_pipe:
-                        yield
+                    yield
                 proc.wait()
         except BrokenPipeError:
             pass # user quit the pager
