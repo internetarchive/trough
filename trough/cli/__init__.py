@@ -62,10 +62,10 @@ class TroughRepl(cmd.Cmd):
 
         if not self.column_keys:
             column_keys = list(dictlist[0].keys())
-            # column order: # id first, then shortest column, next biggest, etc
+            # column order: id first, then shortest column, next biggest, etc
             # with column name alphabetical as tiebreaker
-            column_keys.sort(key=lambda k: '!' if k == 'id' \
-                                             else '%09d%s' % (max_lengths[k], k))
+            column_keys.sort(key=lambda k: (0, '!') if k == 'id' \
+                                               else (max_lengths[k], k))
             self.column_keys = column_keys
 
         # compose a formatter-string
@@ -123,7 +123,8 @@ class TroughRepl(cmd.Cmd):
         - SHOW CONNECTIONS
         - SHOW SCHEMA schema-name
         - SHOW SCHEMAS
-        - SHOW SEGMENTS [MATCHING 'regexp']
+        - SHOW SEGMENTS
+        - SHOW SEGMENTS MATCHING <regex>
         '''
         with self.pager():
             argument = argument.replace(";", "").lower()
