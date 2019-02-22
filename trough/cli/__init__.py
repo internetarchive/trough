@@ -12,6 +12,7 @@ import asyncio
 from contextlib import contextmanager
 import subprocess
 import io
+import json
 
 HISTORY_FILE = os.path.expanduser('~/.trough_history')
 
@@ -44,7 +45,7 @@ class TroughRepl(cmd.Cmd):
         self.segments = segments
         self.writable = writable
         self.schema_id = schema_id
-        self.pretty_print = True
+        self.format = 'table'
         self.pager_pipe = None
         self.update_prompt()
 
@@ -93,13 +94,17 @@ class TroughRepl(cmd.Cmd):
         try:
             if not result:
                 print('<no results>', file=out)
-            elif self.pretty_print:
+                return 0
+            elif self.format == 'table':
                 n_rows = 0
                 result = list(result)
                 print(self.table(result), end='', file=out)
                 return len(result)
+            elif self.format == 'pretty':
+               print(json.dumps(result, indent=2), file=out)
+               return len(result)
             else:
-                print(result, file=out)
+                print(json.dumps(result), file=out)
                 return len(result)
         except BrokenPipeError:
             pass  # user quit the pager
@@ -118,37 +123,39 @@ class TroughRepl(cmd.Cmd):
         - SHOW CONNECTIONS
         - SHOW SCHEMA schema-name
         - SHOW SCHEMAS
-        - SHOW SEGMENTS [MATCHING 'regexp']'''
-        argument = argument.replace(";", "").lower()
-        if argument[:6] == 'tables':
-            self.do_select("name from sqlite_master where type = 'table';")
-        elif argument[:12] == 'create table':
-            self.do_select(
-                    "sql from sqlite_master where type = 'table' "
-                    "and name = '%s';" % argument[12:].replace(';', '').strip())
-        elif argument[:7] == 'schemas':
-            result = self.cli.schemas()
-            self.display(result)
-        elif argument[:11] == 'connections':
-            self.display([{'connection': segment} for segment in self.segments])
-        elif argument[:7] == 'schema ':
-            name = argument[7:].strip()
-            result = self.cli.schema(name)
-            self.display(result)
-        elif argument[:8] == 'segments':
-            regex = None
-            if "matching" in argument:
-                regex = argument.split("matching")[-1].strip().strip('"').strip("'")
-            try:
-                start = datetime.datetime.now()
-                result = self.cli.readable_segments(regex=regex)
-                end = datetime.datetime.now()
-                n_rows = self.display(result)
-                print("%s results in %s" % (n_rows, end - start))
-            except Exception as e:
-                self.logger.error(e, exc_info=True)
-        else:
-            self.do_help('show')
+        - SHOW SEGMENTS [MATCHING 'regexp']
+        '''
+        with self.pager():
+            argument = argument.replace(";", "").lower()
+            if argument[:6] == 'tables':
+                self.do_select("name from sqlite_master where type = 'table';")
+            elif argument[:12] == 'create table':
+                self.do_select(
+                        "sql from sqlite_master where type = 'table' "
+                        "and name = '%s';" % argument[12:].replace(';', '').strip())
+            elif argument[:7] == 'schemas':
+                result = self.cli.schemas()
+                self.display(result)
+            elif argument[:11] == 'connections':
+                self.display([{'connection': segment} for segment in self.segments])
+            elif argument[:7] == 'schema ':
+                name = argument[7:].strip()
+                result = self.cli.schema(name)
+                self.display(result)
+            elif argument[:8] == 'segments':
+                regex = None
+                if "matching" in argument:
+                    regex = argument.split("matching")[-1].strip().strip('"').strip("'")
+                try:
+                    start = datetime.datetime.now()
+                    result = self.cli.readable_segments(regex=regex)
+                    end = datetime.datetime.now()
+                    n_rows = self.display(result)
+                    print("%s results" % n_rows, file=self.pager_pipe)
+                except Exception as e:
+                    self.logger.error(e, exc_info=True)
+            else:
+                self.do_help('show')
 
     def do_connect(self, argument):
         '''
@@ -172,10 +179,24 @@ class TroughRepl(cmd.Cmd):
             self.segments = argument.split()
         self.update_prompt()
 
-    def do_pretty(self, ignore):
-        '''Toggle pretty-printed results'''
-        self.pretty_print = not self.pretty_print
-        print('pretty print %s' % ("on" if self.pretty_print else "off"))
+    def do_format(self, raw_arg):
+        '''
+        Set result output display format. Options:
+
+        - FORMAT TABLE   - tabular format (the default)
+        - FORMAT PRETTY  - pretty-printed json
+        - FORMAT RAW     - raw json
+
+        With no argument, displays current output format.
+        '''
+        arg = raw_arg.strip().lower()
+        if not arg:
+            print('Format is %r' % self.format)
+        elif arg in ('table', 'pretty', 'raw'):
+            self.format = arg
+            print('Format is now %r' % self.format)
+        else:
+            self.do_help('format')
 
     async def async_select(self, segment, query):
         result = await self.cli.async_read(segment, query)
@@ -226,6 +247,11 @@ class TroughRepl(cmd.Cmd):
 
     @contextmanager
     def pager(self):
+        if self.pager_pipe:
+            # reentrancy!
+            yield
+            return
+
         self.column_keys = None
         cmd = os.environ.get('PAGER') or '/usr/bin/less -nFSX'
         try:
@@ -258,7 +284,8 @@ class TroughRepl(cmd.Cmd):
             self.cli.write(self.segment_id, line, schema_id=self.schema_id)
         else:
             self.logger.error(
-                    'refusing to execute arbitrary sql (in read-only mode)')
+                    'invalid command %r, and refusing to execute arbitrary '
+                    'sql (in read-only mode)', keyword)
 
     def do_quit(self, args):
         if not args:
