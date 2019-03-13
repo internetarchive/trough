@@ -138,7 +138,16 @@ class TroughRepl(cmd.Cmd):
                 result = self.cli.schemas()
                 self.display(result)
             elif argument[:11] == 'connections':
-                self.display([{'connection': segment} for segment in self.segments])
+                connections = []
+                for segment in sorted(self.segments):
+                    conn = {
+                        'segment_id': segment,
+                        'read_url': self.cli.read_url(segment),
+                    }
+                    if self.writable:
+                        conn['write_url'] = self.cli.write_url(segment)
+                    connections.append(conn)
+                self.display(connections)
             elif argument[:7] == 'schema ':
                 name = argument[7:].strip()
                 result = self.cli.schema(name)
