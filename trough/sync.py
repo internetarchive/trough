@@ -527,10 +527,23 @@ class MasterSyncController(SyncController):
     def provision_writable_segment(self, segment_id, schema_id='default'):
         # the query below implements this algorithm:
         # - look up a write lock for the passed-in segment
-        # - if the write lock exists, return it. else:
-        #     - look up the set of readable copies of the segment
-        #     - if readable copies exist choose the one with the lowest load, and return it. else:
-        #         - look up the current set of nodes, choose the one with the lowest load and return it
+        # - if the write lock exists
+        # -   return it
+        # - else
+        # -   look up the set of readable copies of the segment
+        # -   if readable copies exist
+        # -     return the one with the lowest load
+        # -   else (this is a new segment)
+        # -     return the node (service entry with role trough-node) with lowest load
+        #
+        # the result is either:
+        # - a 'lock' table entry table in case there is already a write lock
+        #   for this segment
+        # - a 'services' table entry in with role 'trough-read' in case the
+        #   segment exists but is not under write
+        # - a 'services' table entry with role 'trough-nodes' in case this is a
+        #   new segment, in which case this is the node where we will provision
+        #   the new segment
         assignment = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
             .default(r.table('services')\
@@ -544,6 +557,7 @@ class MasterSyncController(SyncController):
                         .order_by('load')[0].default(None)
                 )
             ).run()
+
         if not assignment:
             raise Exception('No healthy node to assign to')
         post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
@@ -819,7 +833,7 @@ class LocalSyncController(SyncController):
             url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment_id),
             ttl=round(self.sync_loop_timing * 4))
 
-        # check that the file exists on the filesystem
+        # ensure that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
             schema = self.get_schema(schema_id)
