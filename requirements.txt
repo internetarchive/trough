@@ -1,6 +1,6 @@
 protobuf==3.1.0.post1
-PyYAML==3.12
-requests==2.12.4
+PyYAML==5.1
+requests==2.21.0
 six==1.10.0
 git+https://github.com/jkafader/snakebite.git@feature/python3
 ujson==1.35
