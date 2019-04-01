@@ -359,11 +359,15 @@ def trough_client(argv=None):
     arg_parser.add_argument('segment', nargs='*')
     args = arg_parser.parse_args(args=argv[1:])
 
+    logging.root.handlers = []
     logging.basicConfig(
             stream=sys.stdout,
-            level=logging.DEBUG if args.verbose else logging.WARN, format=(
+            level=logging.DEBUG if args.verbose else logging.INFO, format=(
                 '%(asctime)s %(levelname)s %(name)s.%(funcName)s'
                 '(%(filename)s:%(lineno)d) %(message)s'))
+    logging.getLogger('requests.packages.urllib3').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('asyncio').setLevel(logging.WARNING)
 
     cli = trough.client.TroughClient(args.rethinkdb_trough_db_url)
     shell = TroughRepl(cli, args.segment, args.writable, args.schema)

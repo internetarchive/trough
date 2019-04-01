@@ -78,23 +78,24 @@ class TroughClient(object):
                 with self._dirty_segments_lock:
                     dirty_segments = list(self._dirty_segments)
                     self._dirty_segments.clear()
-                logging.info(
+                self.logger.info(
                         'promoting %s trough segments', len(dirty_segments))
                 for segment_id in dirty_segments:
                     try:
                         self.promote(segment_id)
                     except:
-                        logging.error(
+                        self.logger.error(
                                 'problem promoting segment %s', segment_id,
                                 exc_info=True)
             except:
-                logging.error(
+                self.logger.error(
                         'caught exception doing segment promotion',
                         exc_info=True)
 
     def promote(self, segment_id):
         url = os.path.join(self.segment_manager_url(), 'promote')
         payload_dict = {'segment': segment_id}
+        self.logger.debug('posting %s to %s', json.dumps(payload_dict), url)
         response = requests.post(url, json=payload_dict, timeout=21600)
         if response.status_code != 200:
             raise TroughException(
@@ -134,15 +135,16 @@ class TroughClient(object):
         return master_node['url']
 
     def write_url_nocache(self, segment_id, schema_id='default'):
-        provision_url = os.path.join(self.segment_manager_url(), 'provision')
+        url = os.path.join(self.segment_manager_url(), 'provision')
         payload_dict = {'segment': segment_id, 'schema': schema_id}
-        response = requests.post(provision_url, json=payload_dict, timeout=600)
+        self.logger.debug('posting %s to %s', json.dumps(payload_dict), url)
+        response = requests.post(url, json=payload_dict, timeout=600)
         if response.status_code != 200:
             raise TroughException(
                     'unexpected response %r %r: %r from POST %r with '
                     'payload %r' % (
                         response.status_code, response.reason, response.text,
-                        provision_url, json.dumps(payload_dict)))
+                        url, json.dumps(payload_dict)))
         result_dict = response.json()
         # assert result_dict['schema'] == schema_id  # previously provisioned?
         return result_dict['write_url']
