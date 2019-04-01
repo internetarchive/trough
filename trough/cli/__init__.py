@@ -49,6 +49,12 @@ class TroughRepl(cmd.Cmd):
         self.pager_pipe = None
         self.update_prompt()
 
+    def onecmd(self, line):
+        try:
+            return super().onecmd(line)
+        except Exception as e:
+            self.logger.error('caught exception', exc_info=True)
+
     def table(self, dictlist):
         assert dictlist
         s = ''
