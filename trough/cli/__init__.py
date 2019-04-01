@@ -110,10 +110,14 @@ class TroughRepl(cmd.Cmd):
             pass  # user quit the pager
 
     def update_prompt(self):
-        self.prompt = 'trough:%s(%s)> ' % (
-                self.segments[0] if len(self.segments) == 1
-                else '[%s segments]' % len(self.segments),
-                'rw' if self.writable else 'ro')
+        if not self.segments:
+            self.prompt = 'trough> '
+        elif len(self.segments) == 1:
+            self.prompt = 'trough:%s(%s)> ' % (
+                    self.segments[0], 'rw' if self.writable else 'ro')
+        else:
+            self.prompt = 'trough:[%s segments](%s)> ' % (
+                    len(self.segments), 'rw' if self.writable else 'ro')
 
     def do_show(self, argument):
         '''
@@ -291,7 +295,12 @@ class TroughRepl(cmd.Cmd):
         if getattr(self, 'do_' + keyword.lower(), None):
             getattr(self, 'do_' + keyword.lower())(args)
         elif self.writable:
-            self.cli.write(self.segment_id, line, schema_id=self.schema_id)
+            if len(self.segments) == 1:
+                self.cli.write(self.segments[0], line, schema_id=self.schema_id)
+            elif not self.segments:
+                print('not connected to any segments')
+            elif len(self.segments) > 1:
+                print('writing to multiple segments not supported')
         else:
             self.logger.error(
                     'invalid command %r, and refusing to execute arbitrary '
@@ -318,7 +327,7 @@ def trough_client(argv=None):
     arg_parser.add_argument(
             '-s', '--schema', default='default',
             help='schema id for new segment')
-    arg_parser.add_argument('segment', nargs='+')
+    arg_parser.add_argument('segment', nargs='*')
     args = arg_parser.parse_args(args=argv[1:])
 
     logging.basicConfig(
