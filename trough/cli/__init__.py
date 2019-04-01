@@ -153,7 +153,7 @@ class TroughRepl(cmd.Cmd):
                     conn = {'segment_id': segment}
                     if self.writable:
                         try:
-                            conn['write_url'] = self.cli.read_url(segment)
+                            conn['write_url'] = self.cli.write_url(segment)
                         except:
                             conn['write_url'] = None
                     try:
@@ -295,11 +295,25 @@ class TroughRepl(cmd.Cmd):
     def emptyline(self):
         pass
 
-    def default(self, line):
-        if line == 'EOF':
-            print()
-            return True
+    def do_promote(self, args):
+        '''
+        Promote connected segments to permanent storage in hdfs.
 
+        Takes no arguments. Only supported in read-write mode.
+        '''
+        if args.strip():
+            self.do_help('promote')
+            return
+        if not self.segments:
+            print('not connected to any segments')
+            return
+        if not self.writable:
+            print('promoting segments not supported in read-only mode')
+            return
+        for segment in self.segments:
+            self.cli.promote(segment)
+
+    def default(self, line):
         keyword_args = line.strip().split(maxsplit=2)
         if len(keyword_args) == 1:
             keyword, args = keyword_args[0], ''
@@ -321,6 +335,7 @@ class TroughRepl(cmd.Cmd):
                     'sql (in read-only mode)', keyword)
 
     def do_quit(self, args):
+        '''Exit the trough shell.'''
         if not args:
             print('bye!')
             return True
