@@ -71,14 +71,18 @@ except (IOError, AttributeError) as e:
 if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
     settings['MINIMUM_ASSIGNMENTS'] = eval(settings['MINIMUM_ASSIGNMENTS'])
 
-if not os.path.isdir(settings['LOCAL_DATA']):
-    logging.warning("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
-    os.makedirs(settings['LOCAL_DATA'])
-
-if settings['STORAGE_IN_BYTES'] is None:
-    storage_in_bytes = get_storage_in_bytes()
-    logging.warning("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s" % (settings['LOCAL_DATA'], sizeof_fmt(storage_in_bytes)))
-    settings['STORAGE_IN_BYTES'] = storage_in_bytes
-
 if settings['EXTERNAL_IP'] is None:
     settings['EXTERNAL_IP'] = get_ip()
+
+def init_worker():
+    '''
+    Some initial setup for worker nodes.
+    '''
+    if not os.path.isdir(settings['LOCAL_DATA']):
+        logging.info("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
+        os.makedirs(settings['LOCAL_DATA'])
+
+    if settings['STORAGE_IN_BYTES'] is None:
+        storage_in_bytes = get_storage_in_bytes()
+        logging.info("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s" % (settings['LOCAL_DATA'], sizeof_fmt(storage_in_bytes)))
+        settings['STORAGE_IN_BYTES'] = storage_in_bytes

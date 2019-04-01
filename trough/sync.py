@@ -592,6 +592,7 @@ class LocalSyncController(SyncController):
         self.heartbeat_thread = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
 
     def start(self):
+        settings.init_worker()
         self.heartbeat_thread.start()
 
     def heartbeat_periodically_forever(self):
