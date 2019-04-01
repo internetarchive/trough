@@ -144,12 +144,16 @@ class TroughRepl(cmd.Cmd):
             elif argument[:11] == 'connections':
                 connections = []
                 for segment in sorted(self.segments):
-                    conn = {
-                        'segment_id': segment,
-                        'read_url': self.cli.read_url(segment),
-                    }
+                    conn = {'segment_id': segment}
                     if self.writable:
-                        conn['write_url'] = self.cli.write_url(segment)
+                        try:
+                            conn['write_url'] = self.cli.read_url(segment)
+                        except:
+                            conn['write_url'] = None
+                    try:
+                        conn['read_url'] = self.cli.read_url(segment)
+                    except:
+                        conn['read_url'] = None
                     connections.append(conn)
                 self.display(connections)
             elif argument[:7] == 'schema ':
@@ -246,6 +250,10 @@ class TroughRepl(cmd.Cmd):
         Example: Send query "select * from host_statistics;" to server
         trough> query select * from host_statistics;
         '''
+        if not self.segments:
+            print('not connected to any segments')
+            return
+
         query = 'select ' + line
         with self.pager():
             try:
