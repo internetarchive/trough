@@ -1,4 +1,0 @@
----
-- include: setup-rethinkdb.yml
-- include: setup-sync-servers.yml
-- include: setup-workers.yml

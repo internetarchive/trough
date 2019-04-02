@@ -150,8 +150,8 @@ def init(rethinker):
         logging.info('default schema already exists %r', default_schema)
     try:
         rethinker.table('services').index_create('segment').run()
-        rethinker.table('services').index_wait('segment').run()
         rethinker.table('services').index_create('role').run()
+        rethinker.table('services').index_wait('segment').run()
         rethinker.table('services').index_wait('role').run()
     except Exception as e:
         pass
@@ -851,10 +851,10 @@ class LocalSyncController(SyncController):
         return result_dict
 
     def do_segment_promotion(self, segment):
+        # make "online backup" of segment in tmp space (see https://www.sqlite.org/backup.html)
+        # push to hdfs
+        # update mtime of local segment (see comment below)
         import sqlitebck
-        # copy file to temporary location
-        # spawn an HDFS process to put the temporary file upstream
-        # unset the promotion flag on the write record
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
             source = sqlite3.connect(segment.local_path())
@@ -865,12 +865,19 @@ class LocalSyncController(SyncController):
             hdfs.mkdir(os.path.dirname(segment.remote_path))
             hdfs.put(temp_file.name, segment.remote_path)
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
+        # update mtime of local segment so that sync local doesn't think the
+        # segment we just pushed to hdfs is newer (if it did, it would pull it
+        # down and decommission its writable copy)
+        # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
+        os.utime(segment.local_path(), times=(time.time(), time.time()))
 
     def promote_writable_segment_upstream(self, segment_id):
-        # retrieve write lock, ensuring that the segment is under promotion
-        # spawn a thread to perform the promotion
-
-        # return a response that the promotion is in progress
+        # load write lock, check segment is writable and not under promotion
+        # update write lock to mark segment as being under promotion
+        # get hdfs path from rethinkdb, use default if not set
+        # push segment to hdfs
+        # unset under_promotion flag
+        # return response with hdfs path
         query = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
             .update({'under_promotion': True}, return_changes=True)
@@ -886,15 +893,17 @@ class LocalSyncController(SyncController):
             raise Exception("Unexpected result %r from rethinkdb query %r" % (result, query))
 
         try:
-            assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
-            remote_path = assignment.remote_path
-        except r.errors.ReqlNonExistenceError:
-            remote_path = os.path.join(self.hdfs_path, segment_id[:3], '%s.sqlite' % segment_id)
-        segment = Segment(
-                segment_id, size=-1, rethinker=self.rethinker,
-                services=self.services, registry=self.registry,
-                remote_path=remote_path)
-        try:
+            try:
+                assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
+                remote_path = assignment['remote_path']
+            except r.errors.ReqlNonExistenceError:
+                remote_path = os.path.join(self.hdfs_path, segment_id[:3], '%s.sqlite' % segment_id)
+
+            segment = Segment(
+                    segment_id, size=-1, rethinker=self.rethinker,
+                    services=self.services, registry=self.registry,
+                    remote_path=remote_path)
+
             self.do_segment_promotion(segment)
         finally:
             self.rethinker.table('lock')\
@@ -903,15 +912,43 @@ class LocalSyncController(SyncController):
         return {'remote_path': remote_path}
 
     def collect_garbage(self):
-        assignments = set([item.id for item in self.registry.segments_for_host(self.hostname)])
-        for item in os.listdir(self.local_data):
-            if item.endswith('_COPYING_') or item.endswith("journal"):
+        # for each segment file on local disk
+        # - segment assigned to me should not be gc'd
+        # - segment not assigned to me with healthy service count <= minimum
+        #   should not be gc'd
+        # - segment not assigned to me with healthy service count == minimum
+        #   and no local healthy service entry should be gc'd
+        # - segment not assigned to me with healthy service count > minimum
+        #   and has local healthy service entry should be gc'd
+        assignments = set(item.id for item in self.registry.segments_for_host(self.hostname))
+        for filename in os.listdir(self.local_data):
+            if not filename.endswith('.sqlite'):
                 continue
-            if item.replace(".sqlite", "") not in assignments:
-                path = os.path.join(self.local_data, item)
-                logging.info("Deleting unassigned file: %s" % path)
-                os.remove(path)
-
+            segment_id = filename[:-7]
+            local_service_id = 'trough-read:%s:%s' % (self.hostname, segment_id)
+            if segment_id not in assignments:
+                segment = Segment(segment_id, 0, self.rethinker, self.services, self.registry)
+                healthy_service_ids = {service['id'] for service in segment.readable_copies()}
+                if local_service_id in healthy_service_ids:
+                    healthy_service_ids.remove(local_service_id)
+                    if len(healthy_service_ids) >= segment.minimum_assignments():
+                        logging.info(
+                                'segment %s has %s readable copies (minimum is %s) '
+                                'and is not assigned to %s, removing %s from the '
+                                'service registry',
+                                segment_id, len(healthy_service_ids),
+                                segment.minimum_assignments(), self.hostname,
+                                local_service_id)
+                        self.rethinker.table('services').get(local_service_id).delete().run()
+                if len(healthy_service_ids) >= segment.minimum_assignments():
+                    path = os.path.join(self.local_data, filename)
+                    logging.info(
+                            'segment %s now has %s readable copies (minimum '
+                            'is %s) and is not assigned to %s, deleting %s',
+                            segment_id, len(healthy_service_ids),
+                            segment.minimum_assignments(), self.hostname,
+                            path)
+                    os.remove(path)
 
 def get_controller(server_mode):
     logging.info('Connecting to Rethinkdb on: %s' % settings['RETHINKDB_HOSTS'])

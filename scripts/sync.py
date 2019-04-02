@@ -34,6 +34,8 @@ if __name__ == '__main__':
         controller.check_health()
         started = datetime.datetime.now()
         controller.sync()
+        if not args.server:
+            controller.collect_garbage()
         loop_duration = datetime.datetime.now() - started
         sleep_time = settings['SYNC_LOOP_TIMING'] - loop_duration.total_seconds()
         sleep_time = sleep_time if sleep_time > 0 else 0
