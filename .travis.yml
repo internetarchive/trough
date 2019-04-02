@@ -1,12 +1,11 @@
-group: deprecated-2017Q2
-
+dist: xenial
 language: python
 python:
 - 2.7
 - 3.6
 - 3.5
 - 3.4
-- 3.7-dev
+- 3.7
 - nightly
 - pypy
 - pypy3
@@ -16,7 +15,7 @@ matrix:
   - python: pypy
   - python: pypy3
   - python: nightly
-  - python: 3.7-dev
+  - python: 3.4
 
 services:
 - docker
