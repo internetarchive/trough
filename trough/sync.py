@@ -2,7 +2,7 @@
 import logging
 import doublethink
 import rethinkdb as r
-from trough.settings import settings
+from trough.settings import settings, init_worker
 from snakebite import client
 import socket
 import json
@@ -355,6 +355,9 @@ class MasterSyncController(SyncController):
         self.current_master = {}
         self.current_host_nodes = []
 
+    def start(self):
+        init_worker()
+
     def check_config(self):
         try:
             assert settings['HDFS_PATH'], "HDFS_PATH must be set, otherwise I don't know where to look for sqlite files."
@@ -606,7 +609,7 @@ class LocalSyncController(SyncController):
         self.heartbeat_thread = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
 
     def start(self):
-        settings.init_worker()
+        init_worker()
         self.heartbeat_thread.start()
 
     def heartbeat_periodically_forever(self):

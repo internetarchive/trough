@@ -61,7 +61,7 @@ settings = {
 
 try:
     with open(os.environ.get('TROUGH_SETTINGS') or '/etc/trough/settings.yml') as f:
-        yaml_settings = yaml.load(f)
+        yaml_settings = yaml.safe_load(f)
         for key in yaml_settings.keys():
             settings[key] = yaml_settings[key]
 except (IOError, AttributeError) as e:
