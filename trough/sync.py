@@ -355,9 +355,6 @@ class MasterSyncController(SyncController):
         self.current_master = {}
         self.current_host_nodes = []
 
-    def start(self):
-        init_worker()
-
     def check_config(self):
         try:
             assert settings['HDFS_PATH'], "HDFS_PATH must be set, otherwise I don't know where to look for sqlite files."

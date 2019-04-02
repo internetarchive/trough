@@ -27,10 +27,16 @@ def get_storage_in_bytes():
     '''
     Set a reasonable default for storage quota.
 
-    Look up the settings['LOCAL_DATA'] directory, calculate the bytes on the device on which it is mounted, take 80% of total.
+    Look up the settings['LOCAL_DATA'] directory, calculate the bytes on the
+    device on which it is mounted, take 80% of total.
     '''
-    statvfs = os.statvfs(settings['LOCAL_DATA'])
-    return int(statvfs.f_frsize * statvfs.f_blocks * 0.8)
+    path = settings['LOCAL_DATA']
+    while True:
+        try:
+            statvfs = os.statvfs(path)
+            return int(statvfs.f_frsize * statvfs.f_blocks * 0.8)
+        except:
+            path = os.path.dirname(path)
 
 settings = {
     'LOCAL_DATA': '/var/tmp/trough',
@@ -74,6 +80,9 @@ if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
 if settings['EXTERNAL_IP'] is None:
     settings['EXTERNAL_IP'] = get_ip()
 
+if settings['STORAGE_IN_BYTES'] is None:
+    settings['STORAGE_IN_BYTES'] = get_storage_in_bytes()
+
 def init_worker():
     '''
     Some initial setup for worker nodes.
@@ -82,7 +91,3 @@ def init_worker():
         logging.info("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
         os.makedirs(settings['LOCAL_DATA'])
 
-    if settings['STORAGE_IN_BYTES'] is None:
-        storage_in_bytes = get_storage_in_bytes()
-        logging.info("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s" % (settings['LOCAL_DATA'], sizeof_fmt(storage_in_bytes)))
-        settings['STORAGE_IN_BYTES'] = storage_in_bytes

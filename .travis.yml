@@ -47,13 +47,12 @@ before_script:
 - 'uwsgi --http :6111 --master --processes=2 --harakiri=7200 --http-timeout==7200 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &'
 
 script:
-- py.test -v tests
+- py.test --tb=native -v tests
 
 after_script:
 - cat /tmp/trough-sync-local.out
 - cat /tmp/trough-read.out
 - cat /tmp/trough-write.out
-- cat /tmp/trough-sync-server.out
 - cat /tmp/trough-segment-manager-local.out
 - cat /tmp/trough-segment-manager-server.out
 
