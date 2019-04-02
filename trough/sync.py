@@ -122,7 +122,7 @@ class Lock(doublethink.Document):
         '''Acquire a lock. Raises an exception if the lock key exists.'''
         document["id"] = pk
         document["node"] = settings['HOSTNAME']
-        document["acquired_on"] = r.now()
+        document["acquired_on"] = doublethink.utcnow()
         output = rr.table(cls.table).insert(document).run()
         if output.get('errors'):
             raise Exception('Unable to acquire a lock for id: "%s"' % pk)
@@ -264,10 +264,10 @@ class HostRegistry(object):
             self.heartbeat(pool=pool, node=node, segment=segment, port=port, url=url, ttl=round(settings['SYNC_LOOP_TIMING'] * 4))
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
-        asmt = Assignment(self.rethinker, d={ 
+        asmt = Assignment(self.rethinker, d={
             'node': hostname,
             'segment': segment.id,
-            'assigned_on': r.now(),
+            'assigned_on': doublethink.utcnow(),
             'remote_path': remote_path,
             'bytes': segment.size })
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
@@ -492,7 +492,7 @@ class MasterSyncController(SyncController):
                                                         'hash_ring': ring.id,
                                                         'node': assigned_node,
                                                         'segment': segment.id,
-                                                        'assigned_on': r.now(),
+                                                        'assigned_on': doublethink.utcnow(),
                                                         'remote_path': segment.remote_path,
                                                         'bytes': segment.size }))
                     ring_assignments[dict_key]['node'] = assigned_node
