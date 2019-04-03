@@ -578,6 +578,7 @@ class MasterSyncController(SyncController):
             raise Exception("Segment %s is not currently writable" % segment_id)
         post_url = 'http://%s:%s/promote' % (write_lock['node'], self.sync_local_port)
         json_data = {'segment': segment_id}
+        logging.info('posting %s to %s', json.dumps(json_data), post_url)
         response = requests.post(post_url, json=json_data)
         if response.status_code != 200:
             raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
@@ -851,25 +852,36 @@ class LocalSyncController(SyncController):
         return result_dict
 
     def do_segment_promotion(self, segment):
-        # make "online backup" of segment in tmp space (see https://www.sqlite.org/backup.html)
-        # push to hdfs
-        # update mtime of local segment (see comment below)
         import sqlitebck
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
+            # "online backup" see https://www.sqlite.org/backup.html
+            logging.info(
+                    'backing up %s to %s', segment.local_path(),
+                    temp_file.name)
             source = sqlite3.connect(segment.local_path())
             dest = sqlite3.connect(temp_file.name)
             sqlitebck.copy(source, dest)
             source.close()
             dest.close()
+            logging.info(
+                    'uploading %s to hdfs %s', temp_file.name,
+                    segment.remote_path)
             hdfs.mkdir(os.path.dirname(segment.remote_path))
-            hdfs.put(temp_file.name, segment.remote_path)
+            # java hdfs convention, upload to foo._COPYING_
+            tmp_name = '%s._COPYING_' % segment.remote_path
+            hdfs.put(temp_file.name, tmp_name)
+
+            # update mtime of local segment so that sync local doesn't think the
+            # segment we just pushed to hdfs is newer (if it did, it would pull it
+            # down and decommission its writable copy)
+            # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
+            os.utime(segment.local_path(), times=(time.time(), time.time()))
+
+            # now move into place (does not update mtime)
+            hdfs.mv(tmp_name, segment.remote_path)
+
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
-        # update mtime of local segment so that sync local doesn't think the
-        # segment we just pushed to hdfs is newer (if it did, it would pull it
-        # down and decommission its writable copy)
-        # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
-        os.utime(segment.local_path(), times=(time.time(), time.time()))
 
     def promote_writable_segment_upstream(self, segment_id):
         # load write lock, check segment is writable and not under promotion
