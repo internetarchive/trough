@@ -878,8 +878,14 @@ class LocalSyncController(SyncController):
             # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
             os.utime(segment.local_path(), times=(time.time(), time.time()))
 
+            # move existing out of the way if necessary (else mv fails)
+            if hdfs.exists(segment.remote_path):
+                hdfs.rm(segment.remote_path)
+
             # now move into place (does not update mtime)
-            hdfs.mv(tmp_name, segment.remote_path)
+            # returns False (does not raise exception) on failure
+            result = hdfs.mv(tmp_name, segment.remote_path)
+            assert result is True
 
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
 
