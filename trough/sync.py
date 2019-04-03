@@ -2,7 +2,7 @@
 import logging
 import doublethink
 import rethinkdb as r
-from trough.settings import settings
+from trough.settings import settings, init_worker
 from snakebite import client
 import socket
 import json
@@ -19,7 +19,6 @@ import contextlib
 from uhashring import HashRing
 import ujson
 from hdfs3 import HDFileSystem
-import sqlitebck
 import threading
 import tempfile
 
@@ -123,7 +122,7 @@ class Lock(doublethink.Document):
         '''Acquire a lock. Raises an exception if the lock key exists.'''
         document["id"] = pk
         document["node"] = settings['HOSTNAME']
-        document["acquired_on"] = r.now()
+        document["acquired_on"] = doublethink.utcnow()
         output = rr.table(cls.table).insert(document).run()
         if output.get('errors'):
             raise Exception('Unable to acquire a lock for id: "%s"' % pk)
@@ -265,10 +264,10 @@ class HostRegistry(object):
             self.heartbeat(pool=pool, node=node, segment=segment, port=port, url=url, ttl=round(settings['SYNC_LOOP_TIMING'] * 4))
     def assign(self, hostname, segment, remote_path):
         logging.info("Assigning segment: %s to '%s'" % (segment.id, hostname))
-        asmt = Assignment(self.rethinker, d={ 
+        asmt = Assignment(self.rethinker, d={
             'node': hostname,
             'segment': segment.id,
-            'assigned_on': r.now(),
+            'assigned_on': doublethink.utcnow(),
             'remote_path': remote_path,
             'bytes': segment.size })
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
@@ -493,7 +492,7 @@ class MasterSyncController(SyncController):
                                                         'hash_ring': ring.id,
                                                         'node': assigned_node,
                                                         'segment': segment.id,
-                                                        'assigned_on': r.now(),
+                                                        'assigned_on': doublethink.utcnow(),
                                                         'remote_path': segment.remote_path,
                                                         'bytes': segment.size }))
                     ring_assignments[dict_key]['node'] = assigned_node
@@ -528,10 +527,23 @@ class MasterSyncController(SyncController):
     def provision_writable_segment(self, segment_id, schema_id='default'):
         # the query below implements this algorithm:
         # - look up a write lock for the passed-in segment
-        # - if the write lock exists, return it. else:
-        #     - look up the set of readable copies of the segment
-        #     - if readable copies exist choose the one with the lowest load, and return it. else:
-        #         - look up the current set of nodes, choose the one with the lowest load and return it
+        # - if the write lock exists
+        # -   return it
+        # - else
+        # -   look up the set of readable copies of the segment
+        # -   if readable copies exist
+        # -     return the one with the lowest load
+        # -   else (this is a new segment)
+        # -     return the node (service entry with role trough-node) with lowest load
+        #
+        # the result is either:
+        # - a 'lock' table entry table in case there is already a write lock
+        #   for this segment
+        # - a 'services' table entry in with role 'trough-read' in case the
+        #   segment exists but is not under write
+        # - a 'services' table entry with role 'trough-nodes' in case this is a
+        #   new segment, in which case this is the node where we will provision
+        #   the new segment
         assignment = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
             .default(r.table('services')\
@@ -545,6 +557,7 @@ class MasterSyncController(SyncController):
                         .order_by('load')[0].default(None)
                 )
             ).run()
+
         if not assignment:
             raise Exception('No healthy node to assign to')
         post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
@@ -565,6 +578,7 @@ class MasterSyncController(SyncController):
             raise Exception("Segment %s is not currently writable" % segment_id)
         post_url = 'http://%s:%s/promote' % (write_lock['node'], self.sync_local_port)
         json_data = {'segment': segment_id}
+        logging.info('posting %s to %s', json.dumps(json_data), post_url)
         response = requests.post(post_url, json=json_data)
         if response.status_code != 200:
             raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
@@ -593,6 +607,7 @@ class LocalSyncController(SyncController):
         self.heartbeat_thread = threading.Thread(target=self.heartbeat_periodically_forever, daemon=True)
 
     def start(self):
+        init_worker()
         self.heartbeat_thread.start()
 
     def heartbeat_periodically_forever(self):
@@ -819,7 +834,7 @@ class LocalSyncController(SyncController):
             url='http://%s:%s/?segment=%s' % (self.hostname, self.read_port, segment_id),
             ttl=round(self.sync_loop_timing * 4))
 
-        # check that the file exists on the filesystem
+        # ensure that the file exists on the filesystem
         if not segment.local_segment_exists():
             # execute the provisioning sql file against the sqlite segment
             schema = self.get_schema(schema_id)
@@ -837,25 +852,42 @@ class LocalSyncController(SyncController):
         return result_dict
 
     def do_segment_promotion(self, segment):
-        # make "online backup" of segment in tmp space (see https://www.sqlite.org/backup.html)
-        # push to hdfs
-        # update mtime of local segment (see comment below)
         import sqlitebck
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
+            # "online backup" see https://www.sqlite.org/backup.html
+            logging.info(
+                    'backing up %s to %s', segment.local_path(),
+                    temp_file.name)
             source = sqlite3.connect(segment.local_path())
             dest = sqlite3.connect(temp_file.name)
             sqlitebck.copy(source, dest)
             source.close()
             dest.close()
+            logging.info(
+                    'uploading %s to hdfs %s', temp_file.name,
+                    segment.remote_path)
             hdfs.mkdir(os.path.dirname(segment.remote_path))
-            hdfs.put(temp_file.name, segment.remote_path)
+            # java hdfs convention, upload to foo._COPYING_
+            tmp_name = '%s._COPYING_' % segment.remote_path
+            hdfs.put(temp_file.name, tmp_name)
+
+            # update mtime of local segment so that sync local doesn't think the
+            # segment we just pushed to hdfs is newer (if it did, it would pull it
+            # down and decommission its writable copy)
+            # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
+            os.utime(segment.local_path(), times=(time.time(), time.time()))
+
+            # move existing out of the way if necessary (else mv fails)
+            if hdfs.exists(segment.remote_path):
+                hdfs.rm(segment.remote_path)
+
+            # now move into place (does not update mtime)
+            # returns False (does not raise exception) on failure
+            result = hdfs.mv(tmp_name, segment.remote_path)
+            assert result is True
+
             logging.info('Promoted writable segment %s upstream to %s', segment.id, segment.remote_path)
-        # update mtime of local segment so that sync local doesn't think the
-        # segment we just pushed to hdfs is newer (if it did, it would pull it
-        # down and decommission its writable copy)
-        # see https://webarchive.jira.com/browse/ARI-5713?focusedCommentId=110920#comment-110920
-        os.utime(segment.local_path(), times=(time.time(), time.time()))
 
     def promote_writable_segment_upstream(self, segment_id):
         # load write lock, check segment is writable and not under promotion
