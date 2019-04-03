@@ -286,10 +286,12 @@ class TroughClient(object):
                         'content-type': 'application/sql;charset=utf-8'}) as res:
                 if res.status != 200:
                     self._read_url_cache.pop(segment_id, None)
+                    text = await res.text('utf-8')
                     raise TroughException(
-                            'unexpected response %r %r %r from %r to query %r' % (
-                                response.status_code, response.reason, response.text,
-                                read_url, sql))
+                            'unexpected response %r %r %r from %r to '
+                            'query %r' % (
+                                res.status, res.reason, text, read_url,
+                                sql))
                 results = list(await res.json())
                 return results
 
