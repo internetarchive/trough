@@ -277,7 +277,8 @@ def test_promotion(segment_manager_server):
     assert response.status_code == 200
 
     # shouldn't be anything in hdfs yet...
-    expected_remote_path = '%s/tes/test_promotion.sqlite' % settings['HDFS_PATH']
+    expected_remote_path = os.path.join(
+            settings['HDFS_PATH'], 'tes', 'test_promotion.sqlite')
     with pytest.raises(FileNotFoundError):
         hdfs.ls(expected_remote_path, detail=True)
 
@@ -307,6 +308,7 @@ def test_promotion(segment_manager_server):
 
     # grab the file from hdfs and check the content
     # n.b. copy created by sqlitebck may have different size, sha1 etc from orig
+    size = None
     with tempfile.TemporaryDirectory() as tmpdir:
         local_copy = os.path.join(tmpdir, 'test_promotion.sqlite')
         hdfs.get(expected_remote_path, local_copy)
@@ -314,6 +316,41 @@ def test_promotion(segment_manager_server):
         cur = conn.execute('select * from foo')
         assert cur.fetchall() == [('testing segment promotion',)]
         conn.close()
+        size = os.path.getsize(local_copy)
+
+    # test promotion when there is an assignment in rethinkdb
+    rethinker.table('assignment').insert({
+        'assigned_on': doublethink.utcnow(),
+        'bytes': size,
+        'hash_ring': 0 ,
+        'id': 'localhost:test_promotion',
+        'node': 'localhost',
+        'remote_path': expected_remote_path,
+        'segment': 'test_promotion'}).run()
+
+    # promote it to HDFS
+    before = time.time()
+    time.sleep(1.5)
+    result = segment_manager_server.post(
+            '/promote', content_type='application/json',
+            data=ujson.dumps({'segment': 'test_promotion'}))
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'remote_path': expected_remote_path}
+
+    # make sure it doesn't think the segment is under promotion
+    rethinker = doublethink.Rethinker(
+            servers=settings['RETHINKDB_HOSTS'], db='trough_configuration')
+    query = rethinker.table('lock').get('write:lock:test_promotion')
+    result = query.run()
+    assert not result.get('under_promotion')
+
+    # let's see if it's hdfs
+    listing_after_promotion = hdfs.ls(expected_remote_path, detail=True)
+    assert len(listing_after_promotion) == 1
+    assert listing_after_promotion[0]['last_mod'] > before
 
     # pretend the segment is under promotion
     rethinker.table('lock')\

@@ -1,7 +1,0 @@
-#!/bin/bash
-# trough ansible managed
-fifo=/tmp/{{name}}-fifo
-test -e $fifo || setuidgid {{user}} mkfifo $fifo
-command='{{command}}'
-
-exec $command >>$fifo 2>&1

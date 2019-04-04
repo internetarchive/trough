@@ -17,3 +17,4 @@ $script_dir/stop-trough-dev.sh
 rm -vrf /tmp/trough-*.out
 rm -vrf /var/tmp/trough
 python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; print(rr.db_drop('trough_configuration').run())"
+python -c "from hdfs3 import HDFileSystem ; from trough.settings import settings ; hdfs = HDFileSystem(host=settings['HDFS_HOST'], port=settings['HDFS_PORT']) ; hdfs.rm(settings['HDFS_PATH'])"
