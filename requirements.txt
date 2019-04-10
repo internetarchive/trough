@@ -2,7 +2,7 @@ protobuf==3.7.1
 PyYAML==5.1
 requests==2.21.0
 six==1.10.0
-git+https://github.com/nlevitt/snakebite.git@py3
+snakebite-py3==3.0.1
 ujson==1.35
 sqlparse==0.2.2
 uWSGI==2.0.15
