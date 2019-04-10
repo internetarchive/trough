@@ -31,7 +31,7 @@ before_install:
 - sudo dpkg -i libhdfs3_1-1.deb
 
 install:
-- pip install -e . git+https://github.com/nlevitt/snakebite.git@py3 --no-input --upgrade
+- pip install -e . --no-input --upgrade
 - pip install pytest
 
 before_script:

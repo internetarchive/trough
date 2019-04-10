@@ -24,7 +24,7 @@ setup(
         'PyYAML==5.1',
         'requests==2.21.0',
         'six==1.10.0',
-        'snakebite==3.0',
+        'snakebite-py3>=3.0',
         'ujson==1.35',
         'sqlparse==0.2.2',
         'uWSGI==2.0.15',
