@@ -190,9 +190,10 @@ class TestHostRegistry(unittest.TestCase):
         self.assertEqual(output[0]['id'], 'localhost:123456')
     def test_unassign(self):
         segment, registry = self.test_assign()
+        assignment = registry.assignment_queue._queue[0]
         registry.commit_assignments()
-        registry.unassign(registry.assignment_queue._queue[0])
-        self.assertEqual(registry.assignment_queue._queue[0]['id'], 'localhost:123456')
+        registry.unassign(assignment)
+        self.assertEqual(registry.unassignment_queue._queue[0]['id'], 'localhost:123456')
         return registry
     def test_commit_unassignments(self):
         registry = self.test_unassign()
@@ -683,7 +684,8 @@ class TestLocalSyncController(unittest.TestCase):
 
             # - segment not assigned to me with healthy service count <= minimum
             #   should not be gc'd
-            assignment.unassign()
+            controller.registry.unassign(assignment)
+            controller.registry.commit_unassignments()
             # 0 healthy service ids
             controller.collect_garbage()
             assert os.path.exists(path)
