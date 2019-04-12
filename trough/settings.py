@@ -4,10 +4,10 @@ import sys
 import os
 import socket
 
-logging.basicConfig(
-    stream=sys.stderr, level=getattr(logging, os.environ.get('TROUGH_LOG_LEVEL', 'INFO')), # snakebite raises exceptions on DEBUG
-    format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
-           '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
+# logging.basicConfig(
+#     stream=sys.stderr, level=getattr(logging, os.environ.get('TROUGH_LOG_LEVEL', 'INFO')), # snakebite raises exceptions on DEBUG
+#     format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
+#            '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
 
 def sizeof_fmt(num, suffix='B'):
     for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
@@ -27,10 +27,16 @@ def get_storage_in_bytes():
     '''
     Set a reasonable default for storage quota.
 
-    Look up the settings['LOCAL_DATA'] directory, calculate the bytes on the device on which it is mounted, take 80% of total.
+    Look up the settings['LOCAL_DATA'] directory, calculate the bytes on the
+    device on which it is mounted, take 80% of total.
     '''
-    statvfs = os.statvfs(settings['LOCAL_DATA'])
-    return int(statvfs.f_frsize * statvfs.f_blocks * 0.8)
+    path = settings['LOCAL_DATA']
+    while True:
+        try:
+            statvfs = os.statvfs(path)
+            return int(statvfs.f_frsize * statvfs.f_blocks * 0.8)
+        except:
+            path = os.path.dirname(path)
 
 settings = {
     'LOCAL_DATA': '/var/tmp/trough',
@@ -61,25 +67,27 @@ settings = {
 
 try:
     with open(os.environ.get('TROUGH_SETTINGS') or '/etc/trough/settings.yml') as f:
-        yaml_settings = yaml.load(f)
+        yaml_settings = yaml.safe_load(f)
         for key in yaml_settings.keys():
             settings[key] = yaml_settings[key]
 except (IOError, AttributeError) as e:
     logging.warning('%s -- using default settings', e)
 
-
 # if the user provided a lambda, we have to eval() it, :gulp:
 if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
     settings['MINIMUM_ASSIGNMENTS'] = eval(settings['MINIMUM_ASSIGNMENTS'])
 
-if not os.path.isdir(settings['LOCAL_DATA']):
-    logging.warning("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
-    os.makedirs(settings['LOCAL_DATA'])
-
-if settings['STORAGE_IN_BYTES'] is None:
-    storage_in_bytes = get_storage_in_bytes()
-    logging.warning("STORAGE_IN_BYTES is not set. Setting to 80%% of storage on volume containing %s (LOCAL_DATA): %s" % (settings['LOCAL_DATA'], sizeof_fmt(storage_in_bytes)))
-    settings['STORAGE_IN_BYTES'] = storage_in_bytes
-
 if settings['EXTERNAL_IP'] is None:
     settings['EXTERNAL_IP'] = get_ip()
+
+if settings['STORAGE_IN_BYTES'] is None:
+    settings['STORAGE_IN_BYTES'] = get_storage_in_bytes()
+
+def init_worker():
+    '''
+    Some initial setup for worker nodes.
+    '''
+    if not os.path.isdir(settings['LOCAL_DATA']):
+        logging.info("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
+        os.makedirs(settings['LOCAL_DATA'])
+
