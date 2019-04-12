@@ -194,9 +194,9 @@ class TestHostRegistry(unittest.TestCase):
         registry.commit_assignments()
         registry.unassign(assignment)
         self.assertEqual(registry.unassignment_queue._queue[0]['id'], 'localhost:123456')
-        return registry
+        return (segment, registry)
     def test_commit_unassignments(self):
-        registry = self.test_unassign()
+        segment, registry = self.test_unassign()
         registry.commit_unassignments()
         output = [seg for seg in segment.all_copies()]
         self.assertEqual(output, [])
