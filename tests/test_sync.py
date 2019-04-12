@@ -46,8 +46,6 @@ class TestSegment(unittest.TestCase):
         output = segment.all_copies()
         output = [item for item in output]
         self.assertEqual(output[0]['id'], 'test-pool:test-segment')
-    #def test_healthy_services_query(self):
-    #    sync.healthy_services_query(self.rethinker, 'trough-read')
     def test_readable_copies(self):
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         segment = sync.Segment('test-segment',
@@ -188,6 +186,18 @@ class TestHostRegistry(unittest.TestCase):
         registry.commit_assignments()
         output = [seg for seg in segment.all_copies()]
         self.assertEqual(output[0]['id'], 'localhost:123456')
+    def test_unassign(self):
+        segment, registry = self.test_assign()
+        assignment = registry.assignment_queue._queue[0]
+        registry.commit_assignments()
+        registry.unassign(assignment)
+        self.assertEqual(registry.unassignment_queue._queue[0]['id'], 'localhost:123456')
+        return (segment, registry)
+    def test_commit_unassignments(self):
+        segment, registry = self.test_unassign()
+        registry.commit_unassignments()
+        output = [seg for seg in segment.all_copies()]
+        self.assertEqual(output, [])
     def test_segments_for_host(self):
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         segment = sync.Segment('123456',
@@ -199,7 +209,8 @@ class TestHostRegistry(unittest.TestCase):
         registry.commit_assignments()
         output = registry.segments_for_host('localhost')
         self.assertEqual(output[0].id, '123456')
-        asmt.unassign()
+        registry.unassign(asmt)
+        registry.commit_unassignments()
         output = registry.segments_for_host('localhost')
         self.assertEqual(output, [])
 
@@ -671,7 +682,8 @@ class TestLocalSyncController(unittest.TestCase):
 
             # - segment not assigned to me with healthy service count <= minimum
             #   should not be gc'd
-            assignment.unassign()
+            controller.registry.unassign(assignment)
+            controller.registry.commit_unassignments()
             # 0 healthy service ids
             controller.collect_garbage()
             assert os.path.exists(path)

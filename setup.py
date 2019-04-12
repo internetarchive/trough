@@ -28,7 +28,7 @@ setup(
         'ujson==1.35',
         'sqlparse==0.2.2',
         'uWSGI==2.0.15',
-        'doublethink>=0.2.0.dev93',
+        'doublethink>=0.2.0',
         'uhashring==0.7',
         'flask==1.0.2',
         'sqlitebck>=1.4',
