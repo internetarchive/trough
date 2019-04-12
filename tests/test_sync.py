@@ -210,7 +210,8 @@ class TestHostRegistry(unittest.TestCase):
         registry.commit_assignments()
         output = registry.segments_for_host('localhost')
         self.assertEqual(output[0].id, '123456')
-        asmt.unassign()
+        registry.unassign(asmt)
+        registry.commit_unassignments()
         output = registry.segments_for_host('localhost')
         self.assertEqual(output, [])
 

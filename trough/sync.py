@@ -92,7 +92,7 @@ class AssignmentQueue:
 class UnassignmentQueue(AssignmentQueue):
     def commit(self):
         ids = [item.id for item in self._queue]
-        self.rethinker.table('assignment').getAll(*ids).delete().run()
+        self.rethinker.table('assignment').get_all(*ids).delete().run()
         del self._queue[:]
 
 class Assignment(doublethink.Document):
@@ -280,6 +280,8 @@ class HostRegistry(object):
         logging.info('Adding "%s" to rethinkdb.' % (asmt))
         self.assignment_queue.enqueue(asmt)
         return asmt
+    def unassign(self, assignment):
+        self.unassignment_queue.enqueue(assignment)
     def commit_assignments(self):
         self.assignment_queue.commit()
     def commit_unassignments(self):
@@ -495,8 +497,7 @@ class MasterSyncController(SyncController):
                     logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]", segment.id, assigned_node, ring.id)
                     if assignment:
                         logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
-                        #assignment.unassign()
-                        self.registry.unassignment_queue.enqueue(assignment)
+                        self.registry.unassign(assignment)
                         del assignment['id']
                     ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
                                                         'hash_ring': ring.id,
