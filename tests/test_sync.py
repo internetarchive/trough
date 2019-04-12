@@ -46,8 +46,6 @@ class TestSegment(unittest.TestCase):
         output = segment.all_copies()
         output = [item for item in output]
         self.assertEqual(output[0]['id'], 'test-pool:test-segment')
-    #def test_healthy_services_query(self):
-    #    sync.healthy_services_query(self.rethinker, 'trough-read')
     def test_readable_copies(self):
         registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         segment = sync.Segment('test-segment',
