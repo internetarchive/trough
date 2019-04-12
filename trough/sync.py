@@ -114,8 +114,6 @@ class Assignment(doublethink.Document):
     @classmethod
     def segment_assignments(cls, rr, segment):
         return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, index="segment").run())
-    #def unassign(self):
-    #    return self.rr.table(self.table).get(self.id).delete().run()
 
 class Lock(doublethink.Document):
     @classmethod
