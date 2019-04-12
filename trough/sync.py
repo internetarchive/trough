@@ -85,10 +85,16 @@ class AssignmentQueue:
         if self.length() >= 1000:
             self.commit()
     def commit(self):
-        self.rethinker.table('assignment').insert(self._queue).run();
+        self.rethinker.table('assignment').insert(self._queue).run()
         del self._queue[:]
     def length(self):
         return len(self._queue)
+
+class UnassignmentQueue(AssignmentQueue):
+    def commit(self):
+        ids = [item.id for item in self._queue]
+        self.rethinker.table('assignment').getAll(*ids).delete().run()
+        del self._queue[:]
 
 class Assignment(doublethink.Document):
     def populate_defaults(self):
@@ -109,8 +115,8 @@ class Assignment(doublethink.Document):
     @classmethod
     def segment_assignments(cls, rr, segment):
         return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, index="segment").run())
-    def unassign(self):
-        return self.rr.table(self.table).get(self.id).delete().run()
+    #def unassign(self):
+    #    return self.rr.table(self.table).get(self.id).delete().run()
 
 class Lock(doublethink.Document):
     @classmethod
@@ -234,6 +240,7 @@ class HostRegistry(object):
         self.rethinker = rethinker
         self.services = services
         self.assignment_queue = AssignmentQueue(self.rethinker)
+        self.unassignment_queue = UnassignmentQueue(self.rethinker)
     def get_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
@@ -276,6 +283,8 @@ class HostRegistry(object):
         return asmt
     def commit_assignments(self):
         self.assignment_queue.commit()
+    def commit_unassignments(self):
+        self.unassignment_queue.commit()
     def segments_for_host(self, host):
         locks = Lock.host_locks(self.rethinker, host)
         segments = {lock.segment: Segment(segment_id=lock.segment, size=0, rethinker=self.rethinker, services=self.services, registry=self) for lock in locks}
@@ -435,7 +444,7 @@ class MasterSyncController(SyncController):
 
         # prune hosts that don't exist anymore
         for host in [key for key in host_ring_mapping.keys() if key not in host_weights and key != 'id']:
-            logging.info('pruning worker %r from pool (worker went offline?)', host)
+            logging.info('pruning worker %r from pool (worker went offline?) [was: hash ring %s]', host, host_ring_mapping[host])
             del(host_ring_mapping[host])
 
         # assign each host to one hash ring. Save the assignment in rethink so it's reproducible.
@@ -448,7 +457,7 @@ class MasterSyncController(SyncController):
         new_hosts = [host for host in host_weights if host not in host_ring_mapping]
         for host in new_hosts:
             weight = host_weights[host]
-            host_ring = sorted(hash_rings, key=lambda ring: len(ring.get_nodes()))[0].id
+            host_ring = sorted(hash_rings, key=lambda ring: len(ring.get_nodes()))[0].id # TODO: this should be sorted by bytes, not raw # of nodes
             host_ring_mapping[host] = { 'weight': weight, 'ring': host_ring }
             hash_rings[host_ring].add_node(host, { 'weight': weight })
             logging.info("new trough worker %r assigned to ring %r", host, host_ring)
@@ -487,7 +496,8 @@ class MasterSyncController(SyncController):
                     logging.info("Segment [%s] will be assigned to host '%s' for ring [%s]", segment.id, assigned_node, ring.id)
                     if assignment:
                         logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
-                        assignment.unassign()
+                        #assignment.unassign()
+                        self.registry.unassignment_queue.enqueue(assignment)
                         del assignment['id']
                     ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
                                                         'hash_ring': ring.id,
@@ -502,6 +512,7 @@ class MasterSyncController(SyncController):
         logging.info("%s assignments changed during this sync cycle.", changed_assignments)
         logging.info("Committing %s assignments", self.registry.assignment_queue.length())
         # commit assignments that were created or updated
+        self.registry.commit_unassignments()
         self.registry.commit_assignments()
 
 
