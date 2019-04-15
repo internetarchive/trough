@@ -61,6 +61,7 @@ settings = {
     'RETHINKDB_HOSTS': ["localhost",],
     'MINIMUM_ASSIGNMENTS': 2,
     'MAXIMUM_ASSIGNMENTS': 2,
+    'SENTRY_DSN': None,
     'LOG_LEVEL': 'INFO',
     'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
 }

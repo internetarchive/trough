@@ -9,6 +9,13 @@ import logging
 import urllib
 import doublethink
 
+if settings['SENTRY_DSN']:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(settings['SENTRY_DSN'])
+    except ImportError:
+        logging.warning("'SENTRY_DSN' setting is configured but 'sentry_sdk' module not available. Install to use sentry.")
+
 class WriteServer:
     def __init__(self):
         self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
