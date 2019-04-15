@@ -367,7 +367,7 @@ class TestMasterSyncController(unittest.TestCase):
             'ttl': 999,
             'last_heartbeat': r.now(),
         }).run()
-        with self.assertRaisesRegex(Exception, 'Received response 500:'):
+        with self.assertRaisesRegex(Exception, 'Received a 500 response while'):
             output = controller.provision_writable_segment('testsegment')
         self.assertEqual(u[3], 'http://example4:6112/provision')
         self.assertEqual(d[3]['segment'], 'testsegment')
