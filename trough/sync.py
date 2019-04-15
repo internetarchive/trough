@@ -22,6 +22,14 @@ from hdfs3 import HDFileSystem
 import threading
 import tempfile
 
+if settings['SENTRY_DSN']:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(settings['SENTRY_DSN'])
+    except ImportError:
+        pass
+
+
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
         lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
@@ -574,7 +582,7 @@ class MasterSyncController(SyncController):
         json_data = {'segment': segment_id, 'schema': schema_id}
         response = requests.post(post_url, json=json_data)
         if response.status_code != 200:
-            raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
+            raise Exception('Received a %s response while provisioning segment "%s" on node %s:\n%r\nwhile posting %r to %r' % (response.status_code, segment_id, assignment['node'], response.text, ujson.dumps(json_data), post_url))
         result_dict = ujson.loads(response.text)
         return result_dict
 
@@ -591,7 +599,7 @@ class MasterSyncController(SyncController):
         logging.info('posting %s to %s', json.dumps(json_data), post_url)
         response = requests.post(post_url, json=json_data)
         if response.status_code != 200:
-            raise Exception('Received response %s: %r posting %r to %r' % (response.status_code, response.text, ujson.dumps(json_data), post_url))
+            raise Exception('Received a %s response while promoting segment "%s" to HDFS:\n%r\nwhile posting %r to %r' % (response.status_code, segment_id, response.text, ujson.dumps(json_data), post_url))
         response_dict = ujson.loads(response.content)
         if not 'remote_path' in response_dict:
             logging.warning('response json from downstream does not have remote_path?? %r', response_dict)

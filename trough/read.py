@@ -10,6 +10,13 @@ import requests
 import urllib
 import doublethink
 
+if settings['SENTRY_DSN']:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(settings['SENTRY_DSN'])
+    except ImportError:
+        pass
+
 class ReadServer:
     def __init__(self):
         self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
