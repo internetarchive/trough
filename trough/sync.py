@@ -959,7 +959,10 @@ class LocalSyncController(SyncController):
                 healthy_service_ids = {service['id'] for service in segment.readable_copies()}
                 if local_service_id in healthy_service_ids:
                     healthy_service_ids.remove(local_service_id)
-                    if len(healthy_service_ids) >= segment.minimum_assignments():
+                    # re-check that the lock is not held by this machine before removing service
+                    rechecked_lock = self.rethinker.table('lock').get(segment.id)
+                    if len(healthy_service_ids) >= segment.minimum_assignments() \
+                        and (rechecked_lock is None or rechecked_lock['node'] != self.hostname):
                         logging.info(
                                 'segment %s has %s readable copies (minimum is %s) '
                                 'and is not assigned to %s, removing %s from the '
@@ -968,7 +971,10 @@ class LocalSyncController(SyncController):
                                 segment.minimum_assignments(), self.hostname,
                                 local_service_id)
                         self.rethinker.table('services').get(local_service_id).delete().run()
-                if len(healthy_service_ids) >= segment.minimum_assignments():
+                # re-check that the lock is not held by this machine before removing segment file
+                rechecked_lock = self.rethinker.table('lock').get(segment.id)
+                if len(healthy_service_ids) >= segment.minimum_assignments() \
+                    and (rechecked_lock is None or rechecked_lock['node'] != self.hostname):
                     path = os.path.join(self.local_data, filename)
                     logging.info(
                             'segment %s now has %s readable copies (minimum '
