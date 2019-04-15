@@ -15,7 +15,7 @@ if settings['SENTRY_DSN']:
         import sentry_sdk
         sentry_sdk.init(settings['SENTRY_DSN'])
     except ImportError:
-        pass
+        logging.warning("'SENTRY_DSN' setting is configured but 'sentry_sdk' module not available. Install to use sentry.")
 
 class ReadServer:
     def __init__(self):
