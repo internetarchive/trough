@@ -92,6 +92,7 @@ class AssignmentQueue:
         if self.length() >= 1000:
             self.commit()
     def commit(self):
+        logging.info("Committing %s assignments", self.length())
         self.rethinker.table('assignment').insert(self._queue).run()
         del self._queue[:]
     def length(self):
@@ -99,6 +100,7 @@ class AssignmentQueue:
 
 class UnassignmentQueue(AssignmentQueue):
     def commit(self):
+        logging.info("Committing %s unassignments", self.length())
         ids = [item.id for item in self._queue]
         self.rethinker.table('assignment').get_all(*ids).delete().run()
         del self._queue[:]
@@ -504,7 +506,6 @@ class MasterSyncController(SyncController):
                     if assignment:
                         logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
                         self.registry.unassign(assignment)
-                        del assignment['id']
                     ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
                                                         'hash_ring': ring.id,
                                                         'node': assigned_node,
@@ -516,7 +517,6 @@ class MasterSyncController(SyncController):
                     ring_assignments[dict_key]['id'] = "%s:%s" % (ring_assignments[dict_key]['node'], ring_assignments[dict_key]['segment'])
                     self.registry.assignment_queue.enqueue(ring_assignments[dict_key])
         logging.info("%s assignments changed during this sync cycle.", changed_assignments)
-        logging.info("Committing %s assignments", self.registry.assignment_queue.length())
         # commit assignments that were created or updated
         self.registry.commit_unassignments()
         self.registry.commit_assignments()
