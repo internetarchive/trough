@@ -100,7 +100,6 @@ class AssignmentQueue:
 
 class UnassignmentQueue(AssignmentQueue):
     def commit(self):
-        import pdb; pdb.set_trace()
         logging.info("Committing %s unassignments", self.length())
         ids = [item.id for item in self._queue]
         self.rethinker.table('assignment').get_all(*ids).delete().run()
