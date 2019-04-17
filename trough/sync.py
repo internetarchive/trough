@@ -100,6 +100,7 @@ class AssignmentQueue:
 
 class UnassignmentQueue(AssignmentQueue):
     def commit(self):
+        import pdb; pdb.set_trace()
         logging.info("Committing %s unassignments", self.length())
         ids = [item.id for item in self._queue]
         self.rethinker.table('assignment').get_all(*ids).delete().run()
@@ -506,6 +507,7 @@ class MasterSyncController(SyncController):
                     if assignment:
                         logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
                         self.registry.unassign(assignment)
+                        del ring_assignments[dict_key]
                     ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
                                                         'hash_ring': ring.id,
                                                         'node': assigned_node,
