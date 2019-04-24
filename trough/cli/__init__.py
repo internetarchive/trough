@@ -44,7 +44,8 @@ class TroughRepl(cmd.Cmd):
         self.schema_id = schema_id
         self.pretty_print = True
         self.show_segment_in_result = False
-        self.workers = 20
+        self.workers = 50
+        self.outfile = sys.stdout
         logging.warn('populating segment cache...')
         self._segment_cache = set(str(item) for item in self.cli.rr.table('services')['segment'].run())
         logging.warn('done. %s segments' % len(self._segment_cache))
@@ -77,7 +78,7 @@ class TroughRepl(cmd.Cmd):
             result = list(result)
             #result = iter(result)
             #row = next(result)
-            self.table(result)
+            self.table(result, self.outfile)
             #header = row.keys()
             #pt = PrettyTable(header)
             #for item in header:
@@ -98,7 +99,14 @@ class TroughRepl(cmd.Cmd):
         self.prompt = 'trough:%s(%s)> ' % (
         self.segments[0] if len(self.segments) == 1 else '[%s segments]' % len(self.segments), 'rw' if self.writable else 'ro')
 
-        
+
+    def do_set(self, argument):
+        '''SET variables. Available variables to SET:
+        - SET outfile 'outfile.txt': Send all query output to 'outfile.txt' (sys.stdout is the default)'''
+        argument = argument.replace(";", '').lower()
+        if argument[:7] == "outfile":
+            self.outfile = open(argument[7:].strip().strip("'").strip('"'), 'w')
+            print("sending query output to '%s'" % (self.outfile))
     def do_show(self, argument):
         '''SHOW command, like MySQL. Available subcommands:
         - SHOW TABLES
