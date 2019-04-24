@@ -1,7 +1,7 @@
 '''
 trough/client.py - trough client code
 
-Copyright (C) 2017-2018 Internet Archive
+Copyright (C) 2017-2019 Internet Archive
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -31,6 +31,13 @@ import datetime
 import threading
 import time
 import collections
+from aiohttp import ClientSession
+
+class TroughException(Exception):
+    pass
+
+class TroughNoReadUrlException(TroughException):
+    pass
 
 class TroughClient(object):
     logger = logging.getLogger('trough.client.TroughClient')
@@ -71,29 +78,31 @@ class TroughClient(object):
                 with self._dirty_segments_lock:
                     dirty_segments = list(self._dirty_segments)
                     self._dirty_segments.clear()
-                logging.info(
+                self.logger.info(
                         'promoting %s trough segments', len(dirty_segments))
                 for segment_id in dirty_segments:
                     try:
                         self.promote(segment_id)
                     except:
-                        logging.error(
+                        self.logger.error(
                                 'problem promoting segment %s', segment_id,
                                 exc_info=True)
             except:
-                logging.error(
+                self.logger.error(
                         'caught exception doing segment promotion',
                         exc_info=True)
 
     def promote(self, segment_id):
         url = os.path.join(self.segment_manager_url(), 'promote')
         payload_dict = {'segment': segment_id}
+        self.logger.debug('posting %s to %s', json.dumps(payload_dict), url)
         response = requests.post(url, json=payload_dict, timeout=21600)
         if response.status_code != 200:
-            raise Exception(
-                    'Received %s: %r in response to POST %s with data %s' % (
-                        response.status_code, response.text, url,
-                        json.dumps(payload_dict)))
+            raise TroughException(
+                    'unexpected response %r %r: %r from POST %r with '
+                    'payload %r' % (
+                        response.status_code, response.reason, response.text,
+                        url, json.dumps(payload_dict)))
 
     @staticmethod
     def sql_value(x):
@@ -114,24 +123,28 @@ class TroughClient(object):
         elif isinstance(x, (int, float)):
             return x
         else:
-            raise Exception(
+            raise TroughException(
                     "don't know how to make an sql value from %r (%r)" % (
                         x, type(x)))
 
     def segment_manager_url(self):
         master_node = self.svcreg.unique_service('trough-sync-master')
-        assert master_node
+        if not master_node:
+            raise TroughException(
+                    'no healthy trough-sync-master in service registry')
         return master_node['url']
 
     def write_url_nocache(self, segment_id, schema_id='default'):
-        provision_url = os.path.join(self.segment_manager_url(), 'provision')
+        url = os.path.join(self.segment_manager_url(), 'provision')
         payload_dict = {'segment': segment_id, 'schema': schema_id}
-        response = requests.post(provision_url, json=payload_dict, timeout=600)
+        self.logger.debug('posting %s to %s', json.dumps(payload_dict), url)
+        response = requests.post(url, json=payload_dict, timeout=600)
         if response.status_code != 200:
-            raise Exception(
-                    'Received %s: %r in response to POST %s with data %s' % (
-                        response.status_code, response.text, provision_url,
-                        json.dumps(payload_dict)))
+            raise TroughException(
+                    'unexpected response %r %r: %r from POST %r with '
+                    'payload %r' % (
+                        response.status_code, response.reason, response.text,
+                        url, json.dumps(payload_dict)))
         result_dict = response.json()
         # assert result_dict['schema'] == schema_id  # previously provisioned?
         return result_dict['write_url']
@@ -145,25 +158,45 @@ class TroughClient(object):
                                 ).order_by('load')
         self.logger.debug('querying rethinkdb: %r', reql)
         results = reql.run()
-        if results:
+        try:
             return results[0]['url']
-        else:
-            return None
+        except:
+            raise TroughNoReadUrlException(
+                    'no read url for segment %s; usually this means the '
+                    "segment hasn't been provisioned yet" % segment_id)
+
+    def read_urls_for_regex(self, regex):
+        '''
+        Looks up read urls for segments matching `regex`.
+        Populates `self._read_url_cache` and returns dictionary
+        `{segment: url}`
+        '''
+        d = {}
+        reql = self.rr.table('services')\
+                .filter({'role': 'trough-read'})\
+                .filter(r.row.has_fields('segment'))\
+                .filter(lambda svc: svc['segment'].coerce_to('string').match(regex))\
+                .filter(lambda svc: r.now().sub(svc['last_heartbeat']).lt(svc['ttl']))
+        self.logger.debug('querying rethinkdb: %r', reql)
+        results = reql.run()
+        for result in results:
+            d[result['segment']] = result['url']
+            self._read_url_cache[result['segment']] = result['url']
+        return d
+
     def schemas(self):
         reql = self.rr.table('schema')
         for result in reql.run():
-            yield collections.OrderedDict([
-                ('name', result['id']),
-            ])
+            yield collections.OrderedDict([('name', result['id'])])
+
     def schema(self, id):
         reql = self.rr.table('schema').get(id)
         result = reql.run()
         if result:
-            return [collections.OrderedDict([
-                (id, result['sql']),
-            ])]
+            return [collections.OrderedDict([(id, result['sql'])])]
         else:
             return None
+
     def readable_segments(self, regex=None):
         reql = self.rr.table('services').filter(
                 {'role':'trough-read'}).filter(
@@ -208,52 +241,59 @@ class TroughClient(object):
                     write_url, sql_bytes, timeout=600,
                     headers={'content-type': 'application/sql;charset=utf-8'})
             if response.status_code != 200:
-                raise Exception(
-                    'Received %s: %r in response to POST %s with data %r' % (
-                        response.status_code, response.text, write_url, sql))
+                raise TroughException(
+                        'unexpected response %r %r: %r from POST %r with '
+                        'payload %r' % (
+                            response.status_code, response.reason,
+                            response.text, write_url, sql_bytes))
             if segment_id not in self._dirty_segments:
                 with self._dirty_segments_lock:
                     self._dirty_segments.add(segment_id)
-        except:
+        except Exception as e:
             self._write_url_cache.pop(segment_id, None)
-            self.logger.error(
-                    'problem with trough write url %r', write_url,
-                    exc_info=True)
-            return
-        if response.status_code != 200:
-            self._write_url_cache.pop(segment_id, None)
-            self.logger.warn(
-                    'unexpected response %r %r %r from %r to sql=%r',
-                    response.status_code, response.reason, response.text,
-                    write_url, sql)
-            return
-        self.logger.debug('posted to %s: %r', write_url, sql)
+            raise e
 
     def read(self, segment_id, sql_tmpl, values=()):
         read_url = self.read_url(segment_id)
-        if not read_url:
-            raise Exception(
-                    'read url not found for segment %s (no such segment?)' % segment_id)
         sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
         sql_bytes = sql.encode('utf-8')
         try:
             response = requests.post(
                     read_url, sql_bytes, timeout=600,
                     headers={'content-type': 'application/sql;charset=utf-8'})
+            if response.status_code != 200:
+                raise TroughException(
+                        'unexpected response %r %r %r from %r to query %r' % (
+                            response.status_code, response.reason, response.text,
+                            read_url, sql_bytes))
+            self.logger.trace(
+                    'got %r from posting query %r to %r', response.text, sql,
+                    read_url)
+            results = json.loads(response.text)
+            return results
         except Exception as e:
             self._read_url_cache.pop(segment_id, None)
-            raise
-        if response.status_code != 200:
-            self._read_url_cache.pop(segment_id, None)
-            raise Exception(
-                    'unexpected response %r %r %r from %r to sql=%r' % (
-                        response.status_code, response.reason, response.text,
-                        read_url, sql))
-        self.logger.trace(
-                'got %r from posting query %r to %r', response.text, sql,
-                read_url)
-        results = json.loads(response.text)
-        return results
+            raise e
+
+    async def async_read(self, segment_id, sql_tmpl, values=()):
+        read_url = self.read_url(segment_id)
+        sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
+        sql_bytes = sql.encode('utf-8')
+
+        async with ClientSession() as session:
+            async with session.post(
+                    read_url, data=sql_bytes, headers={
+                        'content-type': 'application/sql;charset=utf-8'}) as res:
+                if res.status != 200:
+                    self._read_url_cache.pop(segment_id, None)
+                    text = await res.text('utf-8')
+                    raise TroughException(
+                            'unexpected response %r %r %r from %r to '
+                            'query %r' % (
+                                res.status, res.reason, text, read_url,
+                                sql))
+                results = list(await res.json())
+                return results
 
     def schema_exists(self, schema_id):
         url = os.path.join(self.segment_manager_url(), 'schema', schema_id)
@@ -263,14 +303,18 @@ class TroughClient(object):
         elif response.status_code == 404:
             return False
         else:
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except Exception as e:
+                raise TroughException(e)
 
     def register_schema(self, schema_id, sql):
         url = os.path.join(
                 self.segment_manager_url(), 'schema', schema_id, 'sql')
         response = requests.put(url, sql, timeout=600)
         if response.status_code not in (201, 204):
-            raise Exception(
-                    'Received %s: %r in response to PUT %r with data %r' % (
-                        response.status_code, response.text, sql, url))
+            raise TroughException(
+                    'unexpected response %r %r %r from %r to query %r' % (
+                        response.status_code, response.reason, response.text,
+                        url, sql))
 
