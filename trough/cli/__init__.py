@@ -385,7 +385,8 @@ def trough_client(argv=None):
             formatter_class=BetterArgumentDefaultsHelpFormatter)
     arg_parser.add_argument(
             '-u', '--rethinkdb-trough-db-url',
-            default='rethinkdb://localhost/trough_configuration')
+            default='rethinkdb://localhost/trough_configuration',
+            help='a rethinkdb url such as rethinkdb://localhost/trough_configuration')
     arg_parser.add_argument('-w', '--writable', action='store_true')
     arg_parser.add_argument('-v', '--verbose', action='store_true')
     arg_parser.add_argument(
