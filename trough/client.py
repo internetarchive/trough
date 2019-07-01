@@ -150,7 +150,7 @@ class TroughClient(object):
         return result_dict['write_url']
 
     def read_url_nocache(self, segment_id):
-        reql = self.rr.table('services').get_all(
+        reql = self.rr.table('services', read_mode='outdated').get_all(
                 segment_id, index='segment').filter(
                         {'role':'trough-read'}).filter(
                                 lambda svc: r.now().sub(
@@ -172,7 +172,7 @@ class TroughClient(object):
         `{segment: url}`
         '''
         d = {}
-        reql = self.rr.table('services')\
+        reql = self.rr.table('services', read_mode='outdated')\
                 .filter({'role': 'trough-read'})\
                 .filter(r.row.has_fields('segment'))\
                 .filter(lambda svc: svc['segment'].coerce_to('string').match(regex))\
@@ -185,12 +185,12 @@ class TroughClient(object):
         return d
 
     def schemas(self):
-        reql = self.rr.table('schema')
+        reql = self.rr.table('schema', read_mode='outdated')
         for result in reql.run():
             yield collections.OrderedDict([('name', result['id'])])
 
     def schema(self, id):
-        reql = self.rr.table('schema').get(id)
+        reql = self.rr.table('schema', read_mode='outdated').get(id)
         result = reql.run()
         if result:
             return [collections.OrderedDict([(id, result['sql'])])]
@@ -198,7 +198,7 @@ class TroughClient(object):
             return None
 
     def readable_segments(self, regex=None):
-        reql = self.rr.table('services').filter(
+        reql = self.rr.table('services', read_mode='outdated').filter(
                 {'role':'trough-read'}).filter(
                         lambda svc: r.now().sub(
                             svc['last_heartbeat']).lt(svc['ttl'])

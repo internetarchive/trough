@@ -31,9 +31,10 @@ if settings['SENTRY_DSN']:
 
 
 def healthy_services_query(rethinker, role):
-    return rethinker.table('services').filter({"role": role}).filter(
-        lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
-    )
+    return rethinker.table('services', read_mode='outdated')\
+            .filter({"role": role})\
+            .filter(
+                lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"]))
 
 def setup_connection(conn):
     def regexp(expr, item):
@@ -117,13 +118,13 @@ class Assignment(doublethink.Document):
         rr.table(cls.table).index_wait('segment').run()
     @classmethod
     def host_assignments(cls, rr, node):
-        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).between('%s:\x01' % node, '%s:\x7f' % node, right_bound="closed").run())
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table, read_mode='outdated').between('%s:\x01' % node, '%s:\x7f' % node, right_bound="closed").run())
     @classmethod
     def all(cls, rr):
-        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).run())
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table, read_mode='outdated').run())
     @classmethod
     def segment_assignments(cls, rr, segment):
-        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table).get_all(segment, index="segment").run())
+        return (Assignment(rr, d=asmt) for asmt in rr.table(cls.table, read_mode='outdated').get_all(segment, index="segment").run())
 
 class Lock(doublethink.Document):
     @classmethod
@@ -145,7 +146,7 @@ class Lock(doublethink.Document):
         return self.rr.table(self.table, read_mode='majority').get(self.id).delete().run()
     @classmethod
     def host_locks(cls, rr, host):
-        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table).get_all(host, index="node").run())
+        return (Lock(rr, d=asmt) for asmt in rr.table(cls.table, read_mode='outdated').get_all(host, index="node").run())
 
 class Schema(doublethink.Document):
     pass
@@ -188,7 +189,7 @@ class Segment(object):
         ''' returns the 'assigned' segment copies, whether or not they are 'up' '''
         return Assignment.segment_assignments(self.rethinker, self.id)
     def readable_copies_query(self):
-        return self.rethinker.table('services').get_all(self.id, index="segment").filter({"role": 'trough-read'}).filter(
+        return self.rethinker.table('services', read_mode='outdated').get_all(self.id, index="segment").filter({"role": 'trough-read'}).filter(
                 lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
             )
     def readable_copies(self):
