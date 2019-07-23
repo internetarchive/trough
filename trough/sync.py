@@ -213,6 +213,13 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS'](self.id)
         else:
             return settings['MINIMUM_ASSIGNMENTS']
+    def cold_store(self):
+        if hasattr(settings['COLD_STORE_SEGMENT'], "__call__"):
+            return settings['COLD_STORE_SEGMENT'](self.id)
+        else:
+            return settings['COLD_STORE_SEGMENT']
+    def cold_storage_path(self):
+        return settings['COLD_STORAGE_PATH'].format(prefix=str(self.id)[0:-3], segment_id=self.id)
     def new_write_lock(self):
         '''Raises exception if lock exists.'''
         return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={ "segment": self.id })
@@ -252,6 +259,10 @@ class HostRegistry(object):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
                ).order_by("load").run())
+    def get_cold_hosts(self):
+        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
+                   lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
+               ).filter(cold_storage=True).order_by("load").run())
     def total_bytes_for_node(self, node):
         for service in self.services.available_services('trough-nodes'):
             if service['node'] == node:
@@ -483,6 +494,17 @@ class MasterSyncController(SyncController):
         changed_assignments = 0
         # for each segment in segment list:
         for segment in segments:
+            if segment.cold_store():
+                logging.info("Segment [%s] will be assigned to cold storage tier", segment.id)
+                # assign segment, so we can advertise the service
+                for node in self.registry.get_cold_hosts():
+                    self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={ 
+                                                        'node': node,
+                                                        'segment': segment.id,
+                                                        'assigned_on': doublethink.utcnow(),
+                                                        'remote_path': segment.remote_path,
+                                                        'bytes': segment.size }))
+                break
             # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
             if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
                 if self.hold_election():
@@ -682,7 +704,8 @@ class LocalSyncController(SyncController):
         self.registry.heartbeat(pool='trough-nodes',
             node=self.hostname,
             ttl=round(self.sync_loop_timing * 4),
-            available_bytes=self.storage_in_bytes
+            available_bytes=self.storage_in_bytes,
+            cold_storage=settings['RUN_AS_COLD_STORAGE_NODE'],
         )
 
     def decommission_writable_segment(self, segment, write_lock):
@@ -727,6 +750,10 @@ class LocalSyncController(SyncController):
         logging.info('sync starting')
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            for segment in my_segments:
+                self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
+            return
         remote_mtimes = {}  # { segment_id: mtime (long) }
         try:
             # iterator of dicts that look like this
@@ -822,6 +849,10 @@ class LocalSyncController(SyncController):
         logging.info('processed %s of %s stale segments in %0.1f sec', num_processed, len(stale_queue), time.time() - start)
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            return { 'write_url': null,
+                'result': "failure",
+                'reason': "no writes allowed to cold-stored segments." }
         # instantiate the segment
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
@@ -864,6 +895,7 @@ class LocalSyncController(SyncController):
 
         result_dict = {
             'write_url': trough_write_status['url'],
+            'result': "success",
             'size': os.path.getsize(segment.local_path()),
             'schema': schema_id,
         }
