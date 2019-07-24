@@ -265,7 +265,7 @@ class HostRegistry(object):
     def get_cold_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
-               ).filter({cold_storage: True}).order_by("load").run())
+               ).filter({"cold_storage": True}).order_by("load").run())
     def total_bytes_for_node(self, node):
         for service in self.services.available_services('trough-nodes'):
             if service['node'] == node:
