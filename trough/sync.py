@@ -256,14 +256,17 @@ class HostRegistry(object):
         self.services = services
         self.assignment_queue = AssignmentQueue(self.rethinker)
         self.unassignment_queue = UnassignmentQueue(self.rethinker)
-    def get_hosts(self):
-        return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
+    def get_hosts(self, exclude_cold=True):
+        query = self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
-               ).order_by("load").run())
+               ).order_by("load")
+        if exclude_cold:
+            query.filter(r.row['cold_storage'] != True)
+        return list(query.run())
     def get_cold_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
-               ).filter(cold_storage=True).order_by("load").run())
+               ).filter({cold_storage: True}).order_by("load").run())
     def total_bytes_for_node(self, node):
         for service in self.services.available_services('trough-nodes'):
             if service['node'] == node:
@@ -557,7 +560,7 @@ class MasterSyncController(SyncController):
                 - assign it using consistent hash rings, based on the available quota on each worker
         '''
         if self.hold_election():
-            new_host_nodes = sorted([host.get('node') for host in self.registry.get_hosts()])
+            new_host_nodes = sorted([host.get('node') for host in self.registry.get_hosts(exclude_cold=False)])
             if new_host_nodes != self.current_host_nodes:
                 logging.info('pool of trough workers changed size from %r to %r (old=%r new=%r)', len(self.current_host_nodes), len(new_host_nodes), self.current_host_nodes, new_host_nodes)
                 self.current_host_nodes = new_host_nodes
