@@ -508,7 +508,7 @@ class MasterSyncController(SyncController):
                                                         'assigned_on': doublethink.utcnow(),
                                                         'remote_path': segment.remote_path,
                                                         'bytes': segment.size }))
-                break
+                continue
             # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
             if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
                 if self.hold_election():
