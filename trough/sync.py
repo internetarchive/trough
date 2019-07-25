@@ -506,10 +506,10 @@ class MasterSyncController(SyncController):
             if segment.cold_store():
                 # assign segment, so we can advertise the service
                 for node in self.registry.get_cold_hosts():
-                    if not cold_assignments.get("%s-%s" % (node.host, segment)):
-                        logging.info("Segment [%s] will be assigned to cold storage tier host [%s]", segment.id, node.host)
+                    if not cold_assignments.get("%s-%s" % (node['host'], segment)):
+                        logging.info("Segment [%s] will be assigned to cold storage tier host [%s]", segment.id, node['host'])
                         self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={ 
-                                                        'node': node.host,
+                                                        'node': node['host'],
                                                         'segment': segment.id,
                                                         'assigned_on': doublethink.utcnow(),
                                                         'remote_path': segment.remote_path,
