@@ -234,7 +234,7 @@ class Segment(object):
         else:
             return None
     def local_path(self):
-        if self.cold_storage():
+        if self.cold_store():
             return self.cold_storage_path()
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def local_segment_exists(self):
