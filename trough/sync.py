@@ -263,7 +263,7 @@ class HostRegistry(object):
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
                ).order_by("load")
         if exclude_cold:
-            query.filter(r.row['cold_storage'] != True)
+            query = query.filter(r.row['cold_storage'] != True)
         return list(query.run())
     def get_cold_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
@@ -504,11 +504,20 @@ class MasterSyncController(SyncController):
         changed_assignments = 0
         # for each segment in segment list:
         for segment in segments:
+            # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
+            if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
+                if self.hold_election():
+                    last_heartbeat = datetime.datetime.now()
+                else:
+                    return False
+            logging.debug("Assigning segment [%s]", segment.id)
+            # XXX: the bug in the logic is that they
             if segment.cold_store():
                 # assign segment, so we can advertise the service
                 for cold_host in self.registry.get_cold_hosts():
                     if not cold_assignments.get("%s-%s" % (cold_host['node'], segment.id)):
                         logging.info("Segment [%s] will be assigned to cold storage tier host [%s]", segment.id, cold_host['node'])
+                        changed_assignments += 1
                         self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={ 
                                                         'node': cold_host['node'],
                                                         'segment': segment.id,
@@ -517,13 +526,6 @@ class MasterSyncController(SyncController):
                                                         'bytes': segment.size,
                                                         'hash_ring': "cold" }))
                 continue
-            # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
-            if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
-                if self.hold_election():
-                    last_heartbeat = datetime.datetime.now()
-                else:
-                    return False
-            logging.debug("Assigning segment [%s]", segment.id)
             # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
             assigned_rings = random.sample(hash_rings, segment.minimum_assignments())
