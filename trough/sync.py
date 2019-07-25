@@ -492,8 +492,12 @@ class MasterSyncController(SyncController):
 
         # 'ring_assignments' will be like { "0-192811": Assignment(), "1-192811": Assignment()... }
         ring_assignments = {}
+        cold_assignments = {}
         for assignment in Assignment.all(self.rethinker):
-            if assignment.id != 'ring-assignments':
+            if assignment.hash_ring == 'cold':
+                dict_key = "%s-%s" % (assignment.host, assignment.segment)
+                cold_assignments[dict_key] = assignment
+            elif assignment.id != 'ring-assignments':
                 dict_key = "%s-%s" % (assignment.hash_ring, assignment.segment)
                 ring_assignments[dict_key] = assignment
 
@@ -501,15 +505,17 @@ class MasterSyncController(SyncController):
         # for each segment in segment list:
         for segment in segments:
             if segment.cold_store():
-                logging.info("Segment [%s] will be assigned to cold storage tier", segment.id)
                 # assign segment, so we can advertise the service
                 for node in self.registry.get_cold_hosts():
-                    self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={ 
+                    if not cold_assignments.get("%s-%s" % (node, segment)):
+                        logging.info("Segment [%s] will be assigned to cold storage tier host [%s]", segment.id, node)
+                        self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={ 
                                                         'node': node,
                                                         'segment': segment.id,
                                                         'assigned_on': doublethink.utcnow(),
                                                         'remote_path': segment.remote_path,
-                                                        'bytes': segment.size }))
+                                                        'bytes': segment.size,
+                                                        'hash_ring': "cold" }))
                 continue
             # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
             if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
