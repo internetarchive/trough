@@ -495,7 +495,7 @@ class MasterSyncController(SyncController):
         cold_assignments = {}
         for assignment in Assignment.all(self.rethinker):
             if assignment.hash_ring == 'cold':
-                dict_key = "%s-%s" % (assignment.host, assignment.segment)
+                dict_key = "%s-%s" % (assignment.node, assignment.segment)
                 cold_assignments[dict_key] = assignment
             elif assignment.id != 'ring-assignments':
                 dict_key = "%s-%s" % (assignment.hash_ring, assignment.segment)
