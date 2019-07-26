@@ -526,7 +526,7 @@ class MasterSyncController(SyncController):
                                                         'hash_ring': "cold" }))
                 for ring in hash_rings:
                     warm_dict_key = '%s-%s' % (ring.id, segment.id)
-                    if ring_assignments[warm_dict_key]:
+                    if warm_dict_key in ring_assignments:
                         logging.info('removing warm assignnment %s because segment %s is cold', ring_assignments[warm_dict_key], segment.id)
                         self.registry.unassign(ring_assignments[warm_dict_key])
                 continue
