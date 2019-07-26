@@ -517,13 +517,18 @@ class MasterSyncController(SyncController):
                     if not cold_assignments.get("%s-%s" % (cold_host['node'], segment.id)):
                         logging.info("Segment [%s] will be assigned to cold storage tier host [%s]", segment.id, cold_host['node'])
                         changed_assignments += 1
-                        self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={ 
+                        self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={
                                                         'node': cold_host['node'],
                                                         'segment': segment.id,
                                                         'assigned_on': doublethink.utcnow(),
                                                         'remote_path': segment.remote_path,
                                                         'bytes': segment.size,
                                                         'hash_ring': "cold" }))
+                for ring in hash_rings:
+                    warm_dict_key = '%s-%s' % (ring.id, segment.id)
+                    if ring_assignments[warm_dict_key]:
+                        logging.info('removing warm assignnment %s because segment %s is cold', ring_assignments[warm_dict_key], segment.id)
+                        self.registry.unassign(ring_assignments[warm_dict_key])
                 continue
             # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
