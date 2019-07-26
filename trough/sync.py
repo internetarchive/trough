@@ -263,7 +263,7 @@ class HostRegistry(object):
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
                ).order_by("load")
         if exclude_cold:
-            query = query.filter(r.row['cold_storage'] != True)
+            query = query.filter(r.row['cold_storage'].default(False).not_())
         return list(query.run())
     def get_cold_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
@@ -511,7 +511,6 @@ class MasterSyncController(SyncController):
                 else:
                     return False
             logging.debug("Assigning segment [%s]", segment.id)
-            # XXX: the bug in the logic is that they
             if segment.cold_store():
                 # assign segment, so we can advertise the service
                 for cold_host in self.registry.get_cold_hosts():
