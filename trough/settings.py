@@ -66,7 +66,6 @@ settings = {
     'RUN_AS_COLD_STORAGE_NODE': False,
     'COLD_STORAGE_PATH': "/var/tmp/trough",
     'COLD_STORE_SEGMENT': False,
-    'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
 }
 
 try:
