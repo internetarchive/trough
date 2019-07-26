@@ -744,6 +744,7 @@ class LocalSyncController(SyncController):
                 .between('%s:\x01' % self.hostname,
                          '%s:\x7f' % self.hostname,
                          right_bound="closed")\
+                .filter(r.row['hash_ring'].default('').ne('cold'))\
                 .delete()
         result = query.run()
         logging.info(
