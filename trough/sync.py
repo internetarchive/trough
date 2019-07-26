@@ -764,7 +764,7 @@ class LocalSyncController(SyncController):
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
         if settings['RUN_AS_COLD_STORAGE_NODE']:
-            for segment in my_segments:
+            for segment_id in my_segments:
                 self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
             return
         remote_mtimes = {}  # { segment_id: mtime (long) }
