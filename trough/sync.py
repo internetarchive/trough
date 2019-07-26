@@ -731,6 +731,39 @@ class LocalSyncController(SyncController):
     def segment_id_from_path(self, path):
         return path.split("/")[-1].replace('.sqlite', '')
 
+    def discard_warm_stuff(self):
+        '''
+        Make sure cold storage nodes don't hold on to any warm segment
+        assignments or write locks, and are absent from the host ring
+        assignment.
+        '''
+        if not settings['RUN_AS_COLD_STORAGE_NODE']:
+            return
+
+        query = self.rethinker.table(Assignment.table)\
+                .between('%s:\x01' % self.hostname,
+                         '%s:\x7f' % self.hostname,
+                         right_bound="closed")\
+                .delete()
+        result = query.run()
+        logging.info(
+                'deleted warm segment assignments: %s returned %s',
+                query, result)
+
+        query = self.rethinker.table(Lock.table)\
+                .get_all(self.hostname, index="node").delete()
+        result = query.run()
+        logging.info(
+                'deleted warm segment write locks: %s returned %s',
+                query, result)
+
+        query = self.rethinker.table(Assignment.table).get('ring-assignments')\
+                .replace(r.row.without(self.hostname))
+        result = query.run()
+        logging.info(
+                'deleted %s from ring assignments: %s returned %s',
+                self.hostname, query, result)
+
     def sync(self):
         '''
         assignments = list of segments assigned to this node
@@ -761,12 +794,17 @@ class LocalSyncController(SyncController):
         '''
         start = time.time()
         logging.info('sync starting')
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            self.discard_warm_stuff()
+
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
+
         if settings['RUN_AS_COLD_STORAGE_NODE']:
             for segment_id in my_segments:
                 self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
             return
+
         remote_mtimes = {}  # { segment_id: mtime (long) }
         try:
             # iterator of dicts that look like this
@@ -1002,6 +1040,9 @@ class LocalSyncController(SyncController):
         #   and no local healthy service entry should be gc'd
         # - segment not assigned to me with healthy service count > minimum
         #   and has local healthy service entry should be gc'd
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            return
+
         assignments = set(item.id for item in self.registry.segments_for_host(self.hostname))
         for filename in os.listdir(self.local_data):
             if not filename.endswith('.sqlite'):
