@@ -22,6 +22,9 @@ from hdfs3 import HDFileSystem
 import threading
 import tempfile
 
+class ClientError(Exception):
+    pass
+
 if settings['SENTRY_DSN']:
     try:
         import sentry_sdk
@@ -603,6 +606,12 @@ class MasterSyncController(SyncController):
         # - a 'services' table entry with role 'trough-nodes' in case this is a
         #   new segment, in which case this is the node where we will provision
         #   the new segment
+        if Segment(segment_id, None, None, None, None).cold_store():
+            raise ClientError(
+                    'cannot provision segment %s for writing because that '
+                    'segment id is in the read-only cold storage '
+                    'range' % segment_id)
+
         assignment = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
             .default(r.table('services')\
@@ -907,15 +916,24 @@ class LocalSyncController(SyncController):
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
         if settings['RUN_AS_COLD_STORAGE_NODE']:
-            return { 'write_url': null,
-                'result': "failure",
-                'reason': "no writes allowed to cold-stored segments." }
+            raise ClientError(
+                    'cannot provision segment %s for writing because this '
+                    'trough worker %s is designated as cold storage' % (
+                        segment_id, self.host))
+
         # instantiate the segment
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
             services=self.services,
             registry=self.registry,
             size=0)
+
+        if segment.cold_store():
+            raise ClientError(
+                    'cannot provision segment %s for writing because that '
+                    'segment id is in the read-only cold storage '
+                    'range' % segment_id)
+
         # get the current write lock if any # TODO: collapse the below into one query
         lock_data = segment.retrieve_write_lock()
         if lock_data:
