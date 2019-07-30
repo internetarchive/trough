@@ -606,7 +606,7 @@ class MasterSyncController(SyncController):
         # - a 'services' table entry with role 'trough-nodes' in case this is a
         #   new segment, in which case this is the node where we will provision
         #   the new segment
-        if Segment(segment_id, None, None, None, None).cold_store():
+        if Segment(segment_id, -1, None, None, None).cold_store():
             raise ClientError(
                     'cannot provision segment %s for writing because that '
                     'segment id is in the read-only cold storage '
