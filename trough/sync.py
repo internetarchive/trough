@@ -621,7 +621,7 @@ class MasterSyncController(SyncController):
                 .order_by('load')[0].default(
                     r.table('services')\
                         .get_all('trough-nodes', index='role')\
-                        .filter(r.row['hash_ring'].default('').ne('cold'))\
+                        .filter(r.row['cold_storage'].default(False).not_())\
                         .filter(lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"]))\
                         .order_by('load')[0].default(None)
                 )
