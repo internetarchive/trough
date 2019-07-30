@@ -255,7 +255,7 @@ class Segment(object):
         return '<Segment:id=%r,local_path=%r>' % (self.id, self.local_path())
 
 class HostRegistry(object):
-    ''''''
+    '''Host Registry'''
     def __init__(self, rethinker, services):
         self.rethinker = rethinker
         self.services = services
@@ -621,6 +621,7 @@ class MasterSyncController(SyncController):
                 .order_by('load')[0].default(
                     r.table('services')\
                         .get_all('trough-nodes', index='role')\
+                        .filter(r.row['hash_ring'].default('').ne('cold'))\
                         .filter(lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"]))\
                         .order_by('load')[0].default(None)
                 )
