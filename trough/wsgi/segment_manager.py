@@ -27,9 +27,14 @@ def make_app(controller):
         schema_id = flask.request.json.get('schema', 'default')
         logging.info('provisioning writable segment %r (schema_id=%r)', segment_id, schema_id)
         # {'write_url': write_url, 'size': None, 'schema': schema}
-        result_dict = controller.provision_writable_segment(segment_id, schema_id=schema_id)
-        result_json = ujson.dumps(result_dict)
-        return flask.Response(result_json, mimetype='application/json')
+        try:
+            result_dict = controller.provision_writable_segment(segment_id, schema_id=schema_id)
+            result_json = ujson.dumps(result_dict)
+            return flask.Response(result_json, mimetype='application/json')
+        except trough.sync.ClientError as e:
+            response = flask.jsonify({'error': e.args[0]})
+            response.status_code = 400
+            return response
 
     @app.route('/promote', methods=['POST'])
     def promote_writable_segment():

@@ -2,3 +2,6 @@ HDFS_PATH: /ait/prod/trough/
 HDFS_HOST: localhost
 HDFS_PORT: 6000
 MINIMUM_ASSIGNMENTS: "lambda segment_id: 2 if segment_id.isnumeric() and int(segment_id) > 200000 else 1"
+COLD_STORE_SEGMENT: "lambda segment_id: segment_id.isnumeric() and int(segment_id) < 600000"
+RUN_AS_COLD_STORAGE_NODE: True
+COLD_STORAGE_PATH: "/var/trough/cold_storage/{prefix}/{segment_id}"

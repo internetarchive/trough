@@ -63,7 +63,9 @@ settings = {
     'MAXIMUM_ASSIGNMENTS': 2,
     'SENTRY_DSN': None,
     'LOG_LEVEL': 'INFO',
-    'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
+    'RUN_AS_COLD_STORAGE_NODE': False,
+    'COLD_STORAGE_PATH': "/mount/hdfs/trough-data/{prefix}/{segment_id}.sqlite",
+    'COLD_STORE_SEGMENT': False,
 }
 
 try:
@@ -77,6 +79,9 @@ except (IOError, AttributeError) as e:
 # if the user provided a lambda, we have to eval() it, :gulp:
 if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
     settings['MINIMUM_ASSIGNMENTS'] = eval(settings['MINIMUM_ASSIGNMENTS'])
+
+if "lambda" in str(settings['COLD_STORE_SEGMENT']):
+    settings['COLD_STORE_SEGMENT'] = eval(settings['COLD_STORE_SEGMENT'])
 
 if settings['EXTERNAL_IP'] is None:
     settings['EXTERNAL_IP'] = get_ip()

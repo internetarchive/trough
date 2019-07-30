@@ -22,6 +22,9 @@ from hdfs3 import HDFileSystem
 import threading
 import tempfile
 
+class ClientError(Exception):
+    pass
+
 if settings['SENTRY_DSN']:
     try:
         import sentry_sdk
@@ -214,6 +217,13 @@ class Segment(object):
             return settings['MINIMUM_ASSIGNMENTS'](self.id)
         else:
             return settings['MINIMUM_ASSIGNMENTS']
+    def cold_store(self):
+        if hasattr(settings['COLD_STORE_SEGMENT'], "__call__"):
+            return settings['COLD_STORE_SEGMENT'](self.id)
+        else:
+            return settings['COLD_STORE_SEGMENT']
+    def cold_storage_path(self):
+        return settings['COLD_STORAGE_PATH'].format(prefix=str(self.id)[0:-3], segment_id=self.id)
     def new_write_lock(self):
         '''Raises exception if lock exists.'''
         return Lock.acquire(self.rethinker, pk='write:lock:%s' % self.id, document={ "segment": self.id })
@@ -227,6 +237,8 @@ class Segment(object):
         else:
             return None
     def local_path(self):
+        if self.cold_store():
+            return self.cold_storage_path()
         return os.path.join(settings['LOCAL_DATA'], "%s.sqlite" % self.id)
     def local_segment_exists(self):
         return os.path.isfile(self.local_path())
@@ -249,10 +261,17 @@ class HostRegistry(object):
         self.services = services
         self.assignment_queue = AssignmentQueue(self.rethinker)
         self.unassignment_queue = UnassignmentQueue(self.rethinker)
-    def get_hosts(self):
+    def get_hosts(self, exclude_cold=True):
+        query = self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
+                   lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
+               ).order_by("load")
+        if exclude_cold:
+            query = query.filter(r.row['cold_storage'].default(False).not_())
+        return list(query.run())
+    def get_cold_hosts(self):
         return list(self.rethinker.table('services').between('trough-nodes:!', 'trough-nodes:~').filter(
                    lambda svc: r.now().sub(svc["last_heartbeat"]).lt(svc["ttl"])
-               ).order_by("load").run())
+               ).filter({"cold_storage": True}).order_by("load").run())
     def total_bytes_for_node(self, node):
         for service in self.services.available_services('trough-nodes'):
             if service['node'] == node:
@@ -476,8 +495,12 @@ class MasterSyncController(SyncController):
 
         # 'ring_assignments' will be like { "0-192811": Assignment(), "1-192811": Assignment()... }
         ring_assignments = {}
+        cold_assignments = {}
         for assignment in Assignment.all(self.rethinker):
-            if assignment.id != 'ring-assignments':
+            if assignment.hash_ring == 'cold':
+                dict_key = "%s-%s" % (assignment.node, assignment.segment)
+                cold_assignments[dict_key] = assignment
+            elif assignment.id != 'ring-assignments':
                 dict_key = "%s-%s" % (assignment.hash_ring, assignment.segment)
                 ring_assignments[dict_key] = assignment
 
@@ -491,6 +514,25 @@ class MasterSyncController(SyncController):
                 else:
                     return False
             logging.debug("Assigning segment [%s]", segment.id)
+            if segment.cold_store():
+                # assign segment, so we can advertise the service
+                for cold_host in self.registry.get_cold_hosts():
+                    if not cold_assignments.get("%s-%s" % (cold_host['node'], segment.id)):
+                        logging.info("Segment [%s] will be assigned to cold storage tier host [%s]", segment.id, cold_host['node'])
+                        changed_assignments += 1
+                        self.registry.assignment_queue.enqueue(Assignment(self.rethinker, d={
+                                                        'node': cold_host['node'],
+                                                        'segment': segment.id,
+                                                        'assigned_on': doublethink.utcnow(),
+                                                        'remote_path': segment.remote_path,
+                                                        'bytes': segment.size,
+                                                        'hash_ring': "cold" }))
+                for ring in hash_rings:
+                    warm_dict_key = '%s-%s' % (ring.id, segment.id)
+                    if warm_dict_key in ring_assignments:
+                        logging.info('removing warm assignnment %s because segment %s is cold', ring_assignments[warm_dict_key], segment.id)
+                        self.registry.unassign(ring_assignments[warm_dict_key])
+                continue
             # find position of segment in N hash rings, where N is the minimum number of assignments for this segment
             random.seed(segment.id) # (seed random so we always get the same sample of hash rings for this item)
             assigned_rings = random.sample(hash_rings, segment.minimum_assignments())
@@ -535,7 +577,7 @@ class MasterSyncController(SyncController):
                 - assign it using consistent hash rings, based on the available quota on each worker
         '''
         if self.hold_election():
-            new_host_nodes = sorted([host.get('node') for host in self.registry.get_hosts()])
+            new_host_nodes = sorted([host.get('node') for host in self.registry.get_hosts(exclude_cold=False)])
             if new_host_nodes != self.current_host_nodes:
                 logging.info('pool of trough workers changed size from %r to %r (old=%r new=%r)', len(self.current_host_nodes), len(new_host_nodes), self.current_host_nodes, new_host_nodes)
                 self.current_host_nodes = new_host_nodes
@@ -564,6 +606,12 @@ class MasterSyncController(SyncController):
         # - a 'services' table entry with role 'trough-nodes' in case this is a
         #   new segment, in which case this is the node where we will provision
         #   the new segment
+        if Segment(segment_id, -1, None, None, None).cold_store():
+            raise ClientError(
+                    'cannot provision segment %s for writing because that '
+                    'segment id is in the read-only cold storage '
+                    'range' % segment_id)
+
         assignment = self.rethinker.table('lock')\
             .get('write:lock:%s' % segment_id)\
             .default(r.table('services')\
@@ -683,7 +731,8 @@ class LocalSyncController(SyncController):
         self.registry.heartbeat(pool='trough-nodes',
             node=self.hostname,
             ttl=round(self.sync_loop_timing * 4),
-            available_bytes=self.storage_in_bytes
+            available_bytes=self.storage_in_bytes,
+            cold_storage=settings['RUN_AS_COLD_STORAGE_NODE'],
         )
 
     def decommission_writable_segment(self, segment, write_lock):
@@ -695,6 +744,40 @@ class LocalSyncController(SyncController):
 
     def segment_id_from_path(self, path):
         return path.split("/")[-1].replace('.sqlite', '')
+
+    def discard_warm_stuff(self):
+        '''
+        Make sure cold storage nodes don't hold on to any warm segment
+        assignments or write locks, and are absent from the host ring
+        assignment.
+        '''
+        if not settings['RUN_AS_COLD_STORAGE_NODE']:
+            return
+
+        query = self.rethinker.table(Assignment.table)\
+                .between('%s:\x01' % self.hostname,
+                         '%s:\x7f' % self.hostname,
+                         right_bound="closed")\
+                .filter(r.row['hash_ring'].default('').ne('cold'))\
+                .delete()
+        result = query.run()
+        logging.info(
+                'deleted warm segment assignments: %s returned %s',
+                query, result)
+
+        query = self.rethinker.table(Lock.table)\
+                .get_all(self.hostname, index="node").delete()
+        result = query.run()
+        logging.info(
+                'deleted warm segment write locks: %s returned %s',
+                query, result)
+
+        query = self.rethinker.table(Assignment.table).get('ring-assignments')\
+                .replace(r.row.without(self.hostname))
+        result = query.run()
+        logging.info(
+                'deleted %s from ring assignments: %s returned %s',
+                self.hostname, query, result)
 
     def sync(self):
         '''
@@ -726,8 +809,17 @@ class LocalSyncController(SyncController):
         '''
         start = time.time()
         logging.info('sync starting')
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            self.discard_warm_stuff()
+
         # { segment_id: Segment }
         my_segments = { segment.id: segment for segment in self.registry.segments_for_host(self.hostname) }
+
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            for segment_id in my_segments:
+                self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
+            return
+
         remote_mtimes = {}  # { segment_id: mtime (long) }
         try:
             # iterator of dicts that look like this
@@ -823,12 +915,25 @@ class LocalSyncController(SyncController):
         logging.info('processed %s of %s stale segments in %0.1f sec', num_processed, len(stale_queue), time.time() - start)
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            raise ClientError(
+                    'cannot provision segment %s for writing because this '
+                    'trough worker %s is designated as cold storage' % (
+                        segment_id, self.host))
+
         # instantiate the segment
         segment = Segment(segment_id=segment_id,
             rethinker=self.rethinker,
             services=self.services,
             registry=self.registry,
             size=0)
+
+        if segment.cold_store():
+            raise ClientError(
+                    'cannot provision segment %s for writing because that '
+                    'segment id is in the read-only cold storage '
+                    'range' % segment_id)
+
         # get the current write lock if any # TODO: collapse the below into one query
         lock_data = segment.retrieve_write_lock()
         if lock_data:
@@ -865,6 +970,7 @@ class LocalSyncController(SyncController):
 
         result_dict = {
             'write_url': trough_write_status['url'],
+            'result': "success",
             'size': os.path.getsize(segment.local_path()),
             'schema': schema_id,
         }
@@ -958,6 +1064,9 @@ class LocalSyncController(SyncController):
         #   and no local healthy service entry should be gc'd
         # - segment not assigned to me with healthy service count > minimum
         #   and has local healthy service entry should be gc'd
+        if settings['RUN_AS_COLD_STORAGE_NODE']:
+            return
+
         assignments = set(item.id for item in self.registry.segments_for_host(self.hostname))
         for filename in os.listdir(self.local_data):
             if not filename.endswith('.sqlite'):
