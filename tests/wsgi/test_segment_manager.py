@@ -278,7 +278,7 @@ def test_promotion(segment_manager_server):
 
     # shouldn't be anything in hdfs yet...
     expected_remote_path = os.path.join(
-            settings['HDFS_PATH'], 'tes', 'test_promotion.sqlite')
+            settings['HDFS_PATH'], 'test_promot', 'test_promotion.sqlite')
     with pytest.raises(FileNotFoundError):
         hdfs.ls(expected_remote_path, detail=True)
 
