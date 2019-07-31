@@ -1042,7 +1042,7 @@ class LocalSyncController(SyncController):
                 assignment = self.rethinker.table('assignment').get_all(segment_id, index='segment')[0].run()
                 remote_path = assignment['remote_path']
             except r.errors.ReqlNonExistenceError:
-                remote_path = os.path.join(self.hdfs_path, segment_id[:3], '%s.sqlite' % segment_id)
+                remote_path = os.path.join(self.hdfs_path, segment_id[:-3], '%s.sqlite' % segment_id)
 
             segment = Segment(
                     segment_id, size=-1, rethinker=self.rethinker,
