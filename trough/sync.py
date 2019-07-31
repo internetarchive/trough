@@ -408,7 +408,9 @@ class MasterSyncController(SyncController):
             sys.exit("{} Exiting...".format(str(e)))
 
     def hold_election(self):
-        logging.info('Holding Sync Master Election...')
+        logging.debug(
+                'Holding Sync Master Election (current master is %s)...',
+                self.current_master.get('url'))
         candidate = {
             "id": "trough-sync-master",
             "node": self.hostname,
