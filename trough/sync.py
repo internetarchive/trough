@@ -507,8 +507,13 @@ class MasterSyncController(SyncController):
                 ring_assignments[dict_key] = assignment
 
         changed_assignments = 0
-        # for each segment in segment list:
+        i = 0
         for segment in segments:
+            i += 1
+            if i % 10000 == 0:
+                logging.info(
+                        'processed assignments for %s of %s segments so far',
+                        i, len(segments))
             # if it's been over 80% of an election cycle since the last heartbeat, hold an election so we don't lose master status
             if datetime.datetime.now() - datetime.timedelta(seconds=0.8 * self.election_cycle) > last_heartbeat:
                 if self.hold_election():
