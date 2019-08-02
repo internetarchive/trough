@@ -1087,7 +1087,7 @@ class LocalSyncController(SyncController):
                 if local_service_id in healthy_service_ids:
                     healthy_service_ids.remove(local_service_id)
                     # re-check that the lock is not held by this machine before removing service
-                    rechecked_lock = self.rethinker.table('lock').get(segment.id)
+                    rechecked_lock = self.rethinker.table('lock').get(segment.id).run()
                     if len(healthy_service_ids) >= segment.minimum_assignments() \
                         and (rechecked_lock is None or rechecked_lock['node'] != self.hostname):
                         logging.info(
