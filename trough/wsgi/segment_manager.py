@@ -1,8 +1,9 @@
+import logging
+import sqlite3
 import trough
 import flask
-import logging
 import ujson
-import sqlite3
+import trough.settings
 
 def make_app(controller):
     controller.check_config()
@@ -112,8 +113,23 @@ def make_app(controller):
 
         return flask.Response(status=201 if created else 204)
 
+    # responds with 204 on successful delete, 404 if segment does not exist
+    @app.route('/segment/<id>', methods=['DELETE'])
+    def delete_segment(id):
+        logging.info('serving request DELETE /segment/%s', id)
+        try:
+            controller.delete_segment(id)
+            return flask.Response(status=204)
+        except KeyError as e:
+            logging.warning('DELETE /segment/%s', id, exc_info=True)
+            flask.abort(404)
+        except trough.sync.ClientError as e:
+            logging.warning('DELETE /segment/%s', id, exc_info=True)
+            flask.abort(400)
+
     return app
 
+trough.settings.configure_logging()
 local = make_app(trough.sync.get_controller(server_mode=False))
 server = make_app(trough.sync.get_controller(server_mode=True))
 
