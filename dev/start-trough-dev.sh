@@ -25,6 +25,8 @@ hadoop_container_ip=$(docker exec -it hadoop ifconfig eth0 | egrep -o 'addr:[^ ]
 sudo ifconfig lo0 alias $hadoop_container_ip
 sudo ifconfig lo0 alias 127.0.0.1
 
+export TROUGH_LOG_LEVEL=DEBUG
+
 $VIRTUAL_ENV/bin/sync.py >>/tmp/trough-sync-local.out 2>&1 &
 sleep 0.5
 python -c "

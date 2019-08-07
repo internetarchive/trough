@@ -4,10 +4,16 @@ import sys
 import os
 import socket
 
-# logging.basicConfig(
-#     stream=sys.stderr, level=getattr(logging, os.environ.get('TROUGH_LOG_LEVEL', 'INFO')), # snakebite raises exceptions on DEBUG
-#     format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
-#            '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
+def configure_logging():
+    logging.root.handlers = []
+    level = getattr(logging, os.environ.get('TROUGH_LOG_LEVEL', 'INFO'))
+    logging.basicConfig(stream=sys.stdout, level=level, format=(
+        '%(asctime)s %(levelname)s %(name)s.%(funcName)s'
+        '(%(filename)s:%(lineno)d) %(message)s'))
+    logging.getLogger('requests.packages.urllib3').setLevel(level + 20)
+    logging.getLogger('urllib3').setLevel(level + 20)
+    logging.getLogger('snakebite').setLevel(level + 10)
+    logging.getLogger('hdfs3').setLevel(level + 10)
 
 def sizeof_fmt(num, suffix='B'):
     for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:

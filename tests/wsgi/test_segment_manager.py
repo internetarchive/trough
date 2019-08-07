@@ -1,6 +1,7 @@
 import pytest
 from trough.wsgi.segment_manager import server
 import ujson
+import trough
 from trough.settings import settings
 import doublethink
 import rethinkdb as r
@@ -10,6 +11,10 @@ import time
 import tempfile
 import os
 import sqlite3
+import logging
+import socket
+
+trough.settings.configure_logging()
 
 @pytest.fixture(scope="module")
 def segment_manager_server():
