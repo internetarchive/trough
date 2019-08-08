@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import abc
 import logging
 import doublethink
 import rethinkdb as r
@@ -325,6 +326,8 @@ class HostRegistry(object):
 
 # Base class, not intended for use.
 class SyncController:
+    __metaclass__ = abc.ABCMeta
+
     def __init__(self, rethinker=None, services=None, registry=None, hdfs_path=None):
         self.rethinker = rethinker
         self.services = services
@@ -387,6 +390,11 @@ class SyncController:
         output.save()
         return (output, created)
 
+    @abc.abstractmethod
+    def delete_segment(self, segment_id):
+        raise NotImplementedError
+
+
 # Master or "Server" mode synchronizer.
 class MasterSyncController(SyncController):
     def __init__(self, *args, **kwargs):
@@ -430,6 +438,78 @@ class MasterSyncController(SyncController):
             logging.debug('I am not the master. The master is %r', sync_master.get('url'))
             self.current_master = sync_master
             return False
+
+    def delete_segment(self, segment_id):
+        '''
+        Looks up the segment's assignments and services to determine which
+        trough worker nodes may hold the segment. Makes an http api call to
+        each of these trough workers to have them delete their segments on disk
+        and delete their service entries. Then deletes assignments from
+        rethinkdb and finally deletes the files from hdfs.
+
+        Raises:
+            KeyError: if there are no assignments and no services for
+                `segment_id`
+            ClientError: if a write lock exists for the segment
+        '''
+        query = self.rethinker.table('lock').get('write:lock:%s' % segment_id)
+        result = query.run()
+        if result:
+            raise ClientError(
+                    'cannot delete segment: write lock exists: %r', result)
+
+        # look up assigned worker nodes and service entry nodes; generally
+        # these should be the same nodes but do everything to be thorough
+        workers = set()
+
+        assignments = list(
+                Assignment.segment_assignments(self.rethinker, segment_id))
+        for assignment in assignments:
+            workers.add(assignment['node'])
+
+        services = self.rethinker.table('services')\
+                .get_all(segment_id, index='segment').run()
+        for service in services:
+            if service.get('role') == 'trough-write':
+                # this service is cruft (we already know there is no write lock)
+                query = self.rethinker.table('services')\
+                        .get(service['id']).delete()
+                result = query.run()
+                # ugh cannot log the query, some kind of bug
+                # *** RuntimeError: generator raised StopIteration
+                logging.warning(
+                        'deleted crufty trough-write service %r => %r',
+                        service['id'], result)
+            workers.add(service['node'])
+
+        if not workers:
+            raise KeyError(
+                    'no assignments or services found for segment id '
+                    '%r' % segment_id)
+
+        # ask workers to do their part (TODO could do these calls in parallel)
+        for worker in workers:
+            url = 'http://%s:%s/segment/%s' % (
+                    worker, self.sync_local_port, segment_id)
+            response = requests.delete(url, timeout=120)
+            if response.status_code >= 500:
+                response.raise_for_status()
+            logging.info('worker: %s DELETE %s', response.status_code, url)
+
+        # delete assignments
+        query = self.rethinker.table('assignment')\
+                .get_all(segment_id, index='segment').delete()
+        result = query.run()
+        logging.info(
+                'rethinkdb result of deleting %s assignment: %s',
+                segment_id, result)
+
+        # delete files from hdfs
+        hdfs_paths = [a['remote_path'] for a in assignments if a.get('remote_path')]
+        if hdfs_paths:
+            hdfs_cli = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+            result = list(hdfs_cli.delete(hdfs_paths))
+            logging.info('%s', result)
 
     def assign_segments(self):
         logging.debug('Assigning and balancing segments...')
@@ -749,6 +829,47 @@ class LocalSyncController(SyncController):
         writable_copy = segment.writable_copy()
         if writable_copy:
             self.services.unregister(writable_copy.get('id'))
+
+    def delete_segment(self, segment_id):
+        '''
+        Deletes the service registry entry for the given segment_id on this
+        worker node, and deletes the .sqlite file from local disk. Called by
+        upstream segment manager server. See
+        `MasterSyncController.delete_segment()`
+
+        Raises:
+            KeyError: if there is no trough-read service for this node for
+                segment_id and the file does not exist locally
+            ClientError: if a write lock exists for the segment
+        '''
+        query = self.rethinker.table('lock').get('write:lock:%s' % segment_id)
+        result = query.run()
+        if result:
+            raise ClientError(
+                    'cannot delete segment: write lock exists: %r', result)
+
+        svc_id = 'trough-read:%s:%s' % (self.hostname, segment_id)
+        query = self.rethinker.table('services').get(svc_id).delete()
+        result = query.run()
+        # ugh cannot log the query, some kind of bug
+        # *** RuntimeError: generator raised StopIteration
+        logging.info(
+                '%s.delete() %s', self.rethinker.table('services').get(svc_id),
+                result)
+        deleted_service = bool(result.get('deleted'))
+
+        deleted_file = False
+        if not settings['RUN_AS_COLD_STORAGE_NODE']:
+            try:
+                path = os.path.join(
+                        settings['LOCAL_DATA'], '%s.sqlite' % segment_id)
+                os.unlink(path)
+                deleted_file = True
+            except FileNotFoundError:
+                deleted_file = False
+
+        if not deleted_file and not deleted_service:
+            raise KeyError
 
     def segment_id_from_path(self, path):
         return path.split("/")[-1].replace('.sqlite', '')

@@ -1,6 +1,7 @@
 import pytest
 from trough.wsgi.segment_manager import server
 import ujson
+import trough
 from trough.settings import settings
 import doublethink
 import rethinkdb as r
@@ -10,6 +11,10 @@ import time
 import tempfile
 import os
 import sqlite3
+import logging
+import socket
+
+trough.settings.configure_logging()
 
 @pytest.fixture(scope="module")
 def segment_manager_server():
@@ -363,4 +368,111 @@ def test_promotion(segment_manager_server):
         result = segment_manager_server.post(
                 '/promote', content_type='application/json',
                 data=ujson.dumps({'segment': 'test_promotion'}))
+
+def test_delete_segment(segment_manager_server):
+    hdfs = hdfs3.HDFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    rethinker = doublethink.Rethinker(
+            servers=settings['RETHINKDB_HOSTS'], db='trough_configuration')
+
+    # initially, segment doesn't exist
+    result = segment_manager_server.delete('/segment/test_delete_segment')
+    assert result.status_code == 404
+
+    # provision segment
+    result = segment_manager_server.post(
+            '/provision', content_type='application/json',
+            data=ujson.dumps({'segment':'test_delete_segment'}))
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict['write_url'].endswith(':6222/?segment=test_delete_segment')
+    write_url = result_dict['write_url']
+
+    # write something into the db
+    sql = ('create table foo (bar varchar(100));\n'
+           'insert into foo (bar) values ("testing segment deletion");\n')
+    response = requests.post(write_url, sql)
+    assert response.status_code == 200
+
+    # check that local file exists
+    local_path = os.path.join(
+            settings['LOCAL_DATA'], 'test_delete_segment.sqlite')
+    assert os.path.exists(local_path)
+
+    # check that attempted delete while under write returns 400
+    result = segment_manager_server.delete('/segment/test_delete_segment')
+    assert result.status_code == 400
+
+    # shouldn't be anything in hdfs yet
+    expected_remote_path = os.path.join(
+            settings['HDFS_PATH'], 'test_delete_segm',
+            'test_delete_segment.sqlite')
+    with pytest.raises(FileNotFoundError):
+        hdfs.ls(expected_remote_path, detail=True)
+
+    # promote segment to hdfs
+    result = segment_manager_server.post(
+            '/promote', content_type='application/json',
+            data=ujson.dumps({'segment': 'test_delete_segment'}))
+    assert result.status_code == 200
+    assert result.mimetype == 'application/json'
+    result_bytes = b''.join(result.response)
+    result_dict = ujson.loads(result_bytes)
+    assert result_dict == {'remote_path': expected_remote_path}
+
+    # let's see if it's hdfs
+    hdfs_ls = hdfs.ls(expected_remote_path, detail=True)
+    assert len(hdfs_ls) == 1
+
+    # add an assignment (so we can check it is deleted successfully)
+    rethinker.table('assignment').insert({
+        'assigned_on': doublethink.utcnow(),
+        'bytes': os.path.getsize(local_path),
+        'hash_ring': 0 ,
+        'id': '%s:test_delete_segment' % socket.gethostname(),
+        'node': socket.gethostname(),
+        'remote_path': expected_remote_path,
+        'segment': 'test_delete_segment'}).run()
+
+    # check that service entries, assignment exist
+    assert rethinker.table('services')\
+            .get('trough-read:%s:test_delete_segment' % socket.gethostname())\
+            .run()
+    assert rethinker.table('services')\
+            .get('trough-write:%s:test_delete_segment' % socket.gethostname())\
+            .run()
+    assert rethinker.table('assignment')\
+            .get('%s:test_delete_segment' % socket.gethostname()).run()
+
+    # check that attempted delete while under write returns 400
+    result = segment_manager_server.delete('/segment/test_delete_segment')
+    assert result.status_code == 400
+
+    # delete the write lock
+    assert rethinker.table('lock')\
+            .get('write:lock:test_delete_segment').delete().run() == {
+                    'deleted': 1, 'errors': 0, 'inserted': 0,
+                    'replaced': 0 , 'skipped': 0 , 'unchanged': 0, }
+
+    # delete the segment
+    result = segment_manager_server.delete('/segment/test_delete_segment')
+    assert result.status_code == 204
+
+    # check that service entries and assignment are gone
+    assert not rethinker.table('services')\
+            .get('trough-read:%s:test_delete_segment' % socket.gethostname())\
+            .run()
+    assert not rethinker.table('services')\
+            .get('trough-write:%s:test_delete_segment' % socket.gethostname())\
+            .run()
+    assert not rethinker.table('assignment')\
+            .get('%s:test_delete_segment' % socket.gethostname()).run()
+
+    # check that local file is gone
+    assert not os.path.exists(local_path)
+
+    # check that file is gone from hdfs
+    with pytest.raises(FileNotFoundError):
+        hdfs_ls = hdfs.ls(expected_remote_path, detail=True)
 
