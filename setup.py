@@ -34,7 +34,7 @@ setup(
         'sqlitebck>=1.4',
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
-        'aiohttp>=2.3.10',
+        'aiohttp>=2.3.10,<=3.0.6', # aiohttp>3.0.6 requires python 3.5.3+
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
