@@ -313,6 +313,30 @@ class TroughRepl(cmd.Cmd):
         for segment in self.segments:
             self.cli.promote(segment)
 
+    def do_drop(self, argument):
+        '''
+        Delete segments entirely from trough. CAUTION: Not reversible!
+        Usage:
+
+        DROP SEGMENT segment_id [segment_id...]
+        '''
+        argument = re.sub(r';+$', '', argument.strip())
+        if not argument:
+            self.do_help('drop')
+            return
+
+        args = argument.split()
+        if args[0].lower() != 'segment' or len(args) < 2:
+            self.do_help('drop')
+            return
+
+        if self.writable:
+            for arg in args[1:]:
+                self.cli.delete_segment(arg)
+        else:
+            self.logger.error('DROP disallowed in read-only mode')
+            return
+
     def default(self, line):
         keyword_args = line.strip().split(maxsplit=2)
         if len(keyword_args) == 1:
@@ -342,6 +366,9 @@ class TroughRepl(cmd.Cmd):
     do_EOF = do_quit
     do_exit = do_quit
     do_bye = do_quit
+
+    def do_help(self, arg):
+        super().do_help(arg.lower())
 
 def trough_client(argv=None):
     argv = argv or sys.argv
