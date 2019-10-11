@@ -12,7 +12,7 @@ docker run --rm -it --volume="$script_dir/..:/trough" internetarchive/trough-tes
             && (cd /trough && git diff HEAD) | patch -p1 \
             && virtualenv -p python3 /tmp/venv \
             && source /tmp/venv/bin/activate \
-            && pip install pytest -e /trough git+https://github.com/nlevitt/snakebite.git@py3 --no-input --upgrade" \
+            && pip install pytest -e /trough --no-input --upgrade" \
     && bash -x -c "source /tmp/venv/bin/activate \
             && sync.py >>/tmp/trough-sync-local.out 2>&1 &" \
     && bash -x -c "source /tmp/venv/bin/activate \

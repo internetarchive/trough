@@ -9,6 +9,13 @@ import logging
 import urllib
 import doublethink
 
+if settings['SENTRY_DSN']:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(settings['SENTRY_DSN'])
+    except ImportError:
+        logging.warning("'SENTRY_DSN' setting is configured but 'sentry_sdk' module not available. Install to use sentry.")
+
 class WriteServer:
     def __init__(self):
         self.rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
@@ -55,6 +62,6 @@ class WriteServer:
             start_response('200 OK', [('Content-Type', 'text/plain')])
             return output
         except Exception as e:
-            logging.error('500 Server Error due to exception (segment=%r query=%r)', segment, query, exc_info=True)
+            logging.error('500 Server Error due to exception (segment=%r query=%r)', segment, bytes(query), exc_info=True)
             start_response('500 Server Error', [('Content-Type', 'text/plain')])
             return [('500 Server Error: %s\n' % str(e)).encode('utf-8')]

@@ -4,10 +4,16 @@ import sys
 import os
 import socket
 
-# logging.basicConfig(
-#     stream=sys.stderr, level=getattr(logging, os.environ.get('TROUGH_LOG_LEVEL', 'INFO')), # snakebite raises exceptions on DEBUG
-#     format='%(asctime)s %(process)d %(levelname)s %(threadName)s '
-#            '%(name)s.%(funcName)s(%(filename)s:%(lineno)d) %(message)s')
+def configure_logging():
+    logging.root.handlers = []
+    level = getattr(logging, os.environ.get('TROUGH_LOG_LEVEL', 'INFO'))
+    logging.basicConfig(stream=sys.stdout, level=level, format=(
+        '%(asctime)s %(levelname)s %(name)s.%(funcName)s'
+        '(%(filename)s:%(lineno)d) %(message)s'))
+    logging.getLogger('requests.packages.urllib3').setLevel(level + 20)
+    logging.getLogger('urllib3').setLevel(level + 20)
+    logging.getLogger('snakebite').setLevel(level + 10)
+    logging.getLogger('hdfs3').setLevel(level + 10)
 
 def sizeof_fmt(num, suffix='B'):
     for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
@@ -61,8 +67,11 @@ settings = {
     'RETHINKDB_HOSTS': ["localhost",],
     'MINIMUM_ASSIGNMENTS': 2,
     'MAXIMUM_ASSIGNMENTS': 2,
+    'SENTRY_DSN': None,
     'LOG_LEVEL': 'INFO',
-    'ALLOWED_WRITE_VERBS': ['INSERT'], # allow inserts only by default. Enforces consistency. The user can optionally allow updates, create etc.
+    'RUN_AS_COLD_STORAGE_NODE': False,
+    'COLD_STORAGE_PATH': "/mount/hdfs/trough-data/{prefix}/{segment_id}.sqlite",
+    'COLD_STORE_SEGMENT': False,
 }
 
 try:
@@ -76,6 +85,9 @@ except (IOError, AttributeError) as e:
 # if the user provided a lambda, we have to eval() it, :gulp:
 if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
     settings['MINIMUM_ASSIGNMENTS'] = eval(settings['MINIMUM_ASSIGNMENTS'])
+
+if "lambda" in str(settings['COLD_STORE_SEGMENT']):
+    settings['COLD_STORE_SEGMENT'] = eval(settings['COLD_STORE_SEGMENT'])
 
 if settings['EXTERNAL_IP'] is None:
     settings['EXTERNAL_IP'] = get_ip()
