@@ -320,7 +320,7 @@ class TroughShell(cmd.Cmd):
 
         DROP SEGMENT segment_id [segment_id...]
         '''
-        argument = re.sub(r';+$', '', argument.strip())
+        argument = re.sub(r';+$', '', argument.strip()).strip()
         if not argument:
             self.do_help('drop')
             return
