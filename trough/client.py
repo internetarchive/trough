@@ -36,7 +36,7 @@ from aiohttp import ClientSession
 class TroughException(Exception):
     pass
 
-class TroughNoReadUrlException(TroughException):
+class TroughSegmentNotFound(TroughException):
     pass
 
 class TroughClient(object):
@@ -161,7 +161,7 @@ class TroughClient(object):
         try:
             return results[0]['url']
         except:
-            raise TroughNoReadUrlException(
+            raise TroughSegmentNotFound(
                     'no read url for segment %s; usually this means the '
                     "segment hasn't been provisioned yet" % segment_id)
 
@@ -317,4 +317,15 @@ class TroughClient(object):
                     'unexpected response %r %r %r from %r to query %r' % (
                         response.status_code, response.reason, response.text,
                         url, sql))
+
+    def delete_segment(self, segment_id):
+        url = os.path.join(self.segment_manager_url(), 'segment', segment_id)
+        self.logger.debug('DELETE %s', url)
+        response = requests.delete(url, timeout=1200)
+        if response.status_code == 404:
+            raise TroughSegmentNotFound('received 404 from DELETE %s' % url)
+        elif response.status_code != 204:
+            raise TroughException(
+                    'unexpected response %r %r: %r from DELETE %s',
+                    response.status_code, response.reason, response.text, url)
 
