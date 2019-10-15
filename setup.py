@@ -6,7 +6,7 @@ setup(
     version='0.1.1',
     packages=[
         'trough',
-        'trough.cli',
+        'trough.shell',
         'trough.wsgi',
     ],
     maintainer='James Kafader',
@@ -38,5 +38,5 @@ setup(
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
-    entry_points={'console_scripts': ['trough-client=trough.cli:trough_client']}
+    entry_points={'console_scripts': ['trough-shell=trough.shell:trough_shell']}
 )
