@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1.3',
+    version='0.1.4',
     packages=[
         'trough',
         'trough.shell',
@@ -34,7 +34,8 @@ setup(
         'sqlitebck>=1.4',
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
-        'aiohttp>=2.3.10,<=3.0.0b0', # aiohttp>3.0.0b0 requires python 3.5.3+
+        'aiohttp>=2.3.10,<=3.0.0b0', # >3.0.0b0 requires python 3.5.3+
+        'async-timeout<3.0.0',       # >=3.0.0 requires python 3.5.3+
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
