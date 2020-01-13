@@ -33,9 +33,9 @@ class BetterArgumentDefaultsHelpFormatter(
         else:
             return argparse.ArgumentDefaultsHelpFormatter._get_help_string(self, action)
 
-class TroughRepl(cmd.Cmd):
+class TroughShell(cmd.Cmd):
     intro = 'Welcome to the trough shell. Type help or ? to list commands.\n'
-    logger = logging.getLogger('trough.client.TroughRepl')
+    logger = logging.getLogger('trough.client.TroughShell')
 
     def __init__(
             self, trough_client, segments, writable=False,
@@ -313,6 +313,30 @@ class TroughRepl(cmd.Cmd):
         for segment in self.segments:
             self.cli.promote(segment)
 
+    def do_drop(self, argument):
+        '''
+        Delete segments entirely from trough. CAUTION: Not reversible!
+        Usage:
+
+        DROP SEGMENT segment_id [segment_id...]
+        '''
+        argument = re.sub(r';+$', '', argument.strip()).strip()
+        if not argument:
+            self.do_help('drop')
+            return
+
+        args = argument.split()
+        if args[0].lower() != 'segment' or len(args) < 2:
+            self.do_help('drop')
+            return
+
+        if self.writable:
+            for arg in args[1:]:
+                self.cli.delete_segment(arg)
+        else:
+            self.logger.error('DROP disallowed in read-only mode')
+            return
+
     def default(self, line):
         keyword_args = line.strip().split(maxsplit=2)
         if len(keyword_args) == 1:
@@ -343,7 +367,10 @@ class TroughRepl(cmd.Cmd):
     do_exit = do_quit
     do_bye = do_quit
 
-def trough_client(argv=None):
+    def do_help(self, arg):
+        super().do_help(arg.lower())
+
+def trough_shell(argv=None):
     argv = argv or sys.argv
     arg_parser = argparse.ArgumentParser(
             prog=os.path.basename(argv[0]),
@@ -370,7 +397,7 @@ def trough_client(argv=None):
     logging.getLogger('asyncio').setLevel(logging.WARNING)
 
     cli = trough.client.TroughClient(args.rethinkdb_trough_db_url)
-    shell = TroughRepl(cli, args.segment, args.writable, args.schema)
+    shell = TroughShell(cli, args.segment, args.writable, args.schema)
 
     if os.path.exists(HISTORY_FILE):
         readline.read_history_file(HISTORY_FILE)

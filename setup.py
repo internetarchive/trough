@@ -3,10 +3,10 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1.1',
+    version='0.1.4',
     packages=[
         'trough',
-        'trough.cli',
+        'trough.shell',
         'trough.wsgi',
     ],
     maintainer='James Kafader',
@@ -34,9 +34,10 @@ setup(
         'sqlitebck>=1.4',
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
-        'aiohttp>=2.3.10,<=3.0.6', # aiohttp>3.0.6 requires python 3.5.3+
+        'aiohttp>=2.3.10,<=3.0.0b0', # >3.0.0b0 requires python 3.5.3+
+        'async-timeout<3.0.0',       # >=3.0.0 requires python 3.5.3+
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
-    entry_points={'console_scripts': ['trough-client=trough.cli:trough_client']}
+    entry_points={'console_scripts': ['trough-shell=trough.shell:trough_shell']}
 )
