@@ -326,6 +326,7 @@ class TroughClient(object):
             raise TroughSegmentNotFound('received 404 from DELETE %s' % url)
         elif response.status_code != 204:
             raise TroughException(
-                    'unexpected response %r %r: %r from DELETE %s',
-                    response.status_code, response.reason, response.text, url)
+                    'unexpected response %r %r: %r from DELETE %s' % (
+                        response.status_code, response.reason, response.text,
+                        url))
 
