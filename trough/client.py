@@ -198,13 +198,13 @@ class TroughClient(object):
             return None
 
     def readable_segments(self, regex=None):
-        reql = self.rr.table('services', read_mode='outdated').filter(
-                {'role':'trough-read'}).filter(
-                        lambda svc: r.now().sub(
-                            svc['last_heartbeat']).lt(svc['ttl'])
-                        )# .order_by('segment')
+        reql = self.rr.table('services', read_mode='outdated')\
+                .filter({'role':'trough-read'})\
+                .filter(lambda svc: r.now().sub(svc['last_heartbeat'])\
+                                           .lt(svc['ttl']))
         if regex:
-            reql = reql.filter(lambda svc: svc['segment'].match(regex))
+            reql = reql.filter(
+                    lambda svc: svc['segment'].coerce_to('string').match(regex))
         self.logger.debug('querying rethinkdb: %r', reql)
         results = reql.run()
         for result in reql.run():
