@@ -1013,8 +1013,8 @@ class LocalSyncController(SyncController):
         num_processed = 0
         for segment_id in sorted(stale_queue, reverse=True):
             elapsed = time.time() - start
-            if elapsed > self.sync_loop_timing:
-                logging.debug('sync loop timed out after %0.1f sec', elapsed)
+            if num_processed > 0 and elapsed > self.sync_loop_timing:
+                logging.info('sync loop timed out after %0.1f sec. You may need to adjust SYNC_LOOP_TIMING.', elapsed)
                 break
             segment = my_segments.get(segment_id)
             num_processed += 1
