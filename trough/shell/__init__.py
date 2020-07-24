@@ -313,28 +313,28 @@ class TroughShell(cmd.Cmd):
         for segment in self.segments:
             self.cli.promote(segment)
 
-    def do_drop(self, argument):
+    def do_shred(self, argument):
         '''
         Delete segments entirely from trough. CAUTION: Not reversible!
         Usage:
 
-        DROP SEGMENT segment_id [segment_id...]
+        SHRED SEGMENT segment_id [segment_id...]
         '''
         argument = re.sub(r';+$', '', argument.strip()).strip()
         if not argument:
-            self.do_help('drop')
+            self.do_help('shred')
             return
 
         args = argument.split()
         if args[0].lower() != 'segment' or len(args) < 2:
-            self.do_help('drop')
+            self.do_help('shred')
             return
 
         if self.writable:
             for arg in args[1:]:
                 self.cli.delete_segment(arg)
         else:
-            self.logger.error('DROP disallowed in read-only mode')
+            self.logger.error('SHRED disallowed in read-only mode')
             return
 
     def default(self, line):
