@@ -34,7 +34,10 @@ import collections
 from aiohttp import ClientSession
 
 class TroughException(Exception):
-    pass
+    def __init__(self, message, payload=None, returned_message=None):
+        super().__init__(message)
+        self.payload = payload
+        self.returned_message = returned_message
 
 class TroughSegmentNotFound(TroughException):
     pass
@@ -245,7 +248,7 @@ class TroughClient(object):
                         'unexpected response %r %r: %r from POST %r with '
                         'payload %r' % (
                             response.status_code, response.reason,
-                            response.text, write_url, sql_bytes))
+                            response.text, write_url, sql_bytes), sql_bytes, response.text)
             if segment_id not in self._dirty_segments:
                 with self._dirty_segments_lock:
                     self._dirty_segments.add(segment_id)
@@ -265,7 +268,7 @@ class TroughClient(object):
                 raise TroughException(
                         'unexpected response %r %r %r from %r to query %r' % (
                             response.status_code, response.reason, response.text,
-                            read_url, sql_bytes))
+                            read_url, sql_bytes), sql_bytes, response.text)
             self.logger.trace(
                     'got %r from posting query %r to %r', response.text, sql,
                     read_url)
@@ -291,7 +294,7 @@ class TroughClient(object):
                             'unexpected response %r %r %r from %r to '
                             'query %r' % (
                                 res.status, res.reason, text, read_url,
-                                sql))
+                                sql), sql_bytes, text)
                 results = list(await res.json())
                 return results
 

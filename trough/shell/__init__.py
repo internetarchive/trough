@@ -52,8 +52,16 @@ class TroughShell(cmd.Cmd):
     def onecmd(self, line):
         try:
             return super().onecmd(line)
+        except trough.client.TroughException as e:
+            if e.returned_message and e.payload:
+                print("An error occured during execution:")
+                print(e.returned_message.replace("500 Server Error: ", ""))
+                print("(query was: '%s')" % e.payload.decode().strip())
+            else:
+                self.logger.error('caught exception', exc_info=True)
         except Exception as e:
             self.logger.error('caught exception', exc_info=True)
+            
 
     def table(self, dictlist):
         assert dictlist
@@ -242,7 +250,12 @@ class TroughShell(cmd.Cmd):
                 try:
                     raise result
                 except:
-                    self.logger.warning(
+                    if isinstance(result, trough.client.TroughException) and result.returned_message and result.payload:
+                        print("An error occured during execution:")
+                        print(result.returned_message.replace("500 Server Error: ", ""))
+                        print("(query was: '%s')" % result.payload.decode().strip())
+                    else:
+                        self.logger.warning(
                             'async_fanout results[%r] is an exception:',
                             i, exc_info=True)
             elif result:
@@ -313,28 +326,74 @@ class TroughShell(cmd.Cmd):
         for segment in self.segments:
             self.cli.promote(segment)
 
-    def do_drop(self, argument):
+    def do_infile(self, filename):
+        '''
+        Read and execute SQL commands from a file.
+
+        Usage:
+
+        INFILE filename
+        '''
+        if not filename:
+            self.do_help('infile')
+            return
+        with open(filename.strip(), 'r') as infile:
+            if self.writable:
+                if len(self.segments) == 1:
+                    self.cli.write(self.segments[0], infile.read(), schema_id=self.schema_id)
+                elif not self.segments:
+                    print('not connected to any segments')
+                elif len(self.segments) > 1:
+                    print('writing to multiple segments not supported')
+            else:
+                self.logger.error(
+                    'invalid command "%s %s", and refusing to execute arbitrary '
+                    'sql (in read-only mode)', 'infile', filename)
+
+        
+        
+    def do_register(self, line):
+        '''
+        Register a new schema. Reads the schema from 'schema_file' argument. 
+
+        Usage:
+
+        REGISTER SCHEMA schema_name schema_file
+        
+        See also: SHOW SCHEMA(S)
+        '''
+        args = line.split()
+        if args[0].lower() == 'schema':
+            args.pop(0)
+        if len(args) != 2:
+            self.do_help('register')
+            return
+        with open(args[1], 'r') as infile:
+            self.cli.register_schema(args[0], infile.read())
+            
+
+    def do_shred(self, argument):
         '''
         Delete segments entirely from trough. CAUTION: Not reversible!
         Usage:
 
-        DROP SEGMENT segment_id [segment_id...]
+        SHRED SEGMENT segment_id [segment_id...]
         '''
         argument = re.sub(r';+$', '', argument.strip()).strip()
         if not argument:
-            self.do_help('drop')
+            self.do_help('shred')
             return
 
         args = argument.split()
         if args[0].lower() != 'segment' or len(args) < 2:
-            self.do_help('drop')
+            self.do_help('shred')
             return
 
         if self.writable:
             for arg in args[1:]:
                 self.cli.delete_segment(arg)
         else:
-            self.logger.error('DROP disallowed in read-only mode')
+            self.logger.error('SHRED disallowed in read-only mode')
             return
 
     def default(self, line):
