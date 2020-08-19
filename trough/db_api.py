@@ -56,7 +56,7 @@ class TroughCursor():
          send provision query to server if not self._write_url.
          after send provision query, set self._write_url.
          send query to server, return JSON
-         """
+        """
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=self.rethinkdb)
         services = doublethink.ServiceRegistry(rethinker)
         master_node = services.unique_service('trough-sync-master')
