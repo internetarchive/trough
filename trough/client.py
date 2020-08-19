@@ -116,10 +116,10 @@ class TroughClient(object):
         elif isinstance(x, bool):
             return int(x)
         elif isinstance(x, str) or isinstance(x, bytes):
-            """
+"""
             the only character that needs escaped in sqlite string literals
             is single-quote, which is escaped as two single-quotes
-            """
+"""
             if isinstance(x, bytes):
                 s = x.decode('utf-8')
             else:
