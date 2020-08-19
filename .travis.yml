@@ -1,12 +1,13 @@
+os: linux
 dist: xenial
 language: python
 python:
 - 2.7
-- 3.6
 - 3.5
-- 3.4
+- 3.6
 - 3.7
-- 3.8-dev
+- 3.8
+- 3.9-dev
 - nightly
 - pypy
 - pypy3
@@ -16,9 +17,7 @@ matrix:
   - python: pypy
   - python: pypy3
   - python: nightly
-  - python: 3.4
-  - python: 3.8-dev
-  - python: 3.8-dev
+  - python: 3.9-dev
 
 services:
 - docker
