@@ -59,7 +59,7 @@ class TroughClient(object):
         '''
         parsed = doublethink.parse_rethinkdb_url(rethinkdb_trough_db_url)
         self.rr = doublethink.Rethinker(
-                servers=parsed.hosts, db=parsed.database)
+                servers = parsed.hosts, db = parsed.database)
         self.svcreg = doublethink.ServiceRegistry(self.rr)
         self._write_url_cache = {}
         self._read_url_cache = {}
@@ -70,7 +70,7 @@ class TroughClient(object):
         self._promoter_thread = None
         if promotion_interval:
             self._promoter_thread = threading.Thread(
-                    target=self._promotrix, name='TroughClient-promoter')
+                    target = self._promotrix, name = 'TroughClient-promoter')
             self._promoter_thread.setDaemon(True)
             self._promoter_thread.start()
 
@@ -89,17 +89,17 @@ class TroughClient(object):
                     except:
                         self.logger.error(
                                 'problem promoting segment %s', segment_id,
-                                exc_info=True)
+                                exc_info = True)
             except:
                 self.logger.error(
                         'caught exception doing segment promotion',
-                        exc_info=True)
+                        exc_info = True)
 
     def promote(self, segment_id):
         url = os.path.join(self.segment_manager_url(), 'promote')
         payload_dict = {'segment': segment_id}
         self.logger.debug('posting %s to %s', json.dumps(payload_dict), url)
-        response = requests.post(url, json=payload_dict, timeout=21600)
+        response = requests.post(url, json = payload_dict, timeout = 21600)
         if response.status_code != 200:
             raise TroughException(
                     'unexpected response %r %r: %r from POST %r with '
@@ -116,8 +116,10 @@ class TroughClient(object):
         elif isinstance(x, bool):
             return int(x)
         elif isinstance(x, str) or isinstance(x, bytes):
-            # the only character that needs escaped in sqlite string literals
-            # is single-quote, which is escaped as two single-quotes
+            """
+            the only character that needs escaped in sqlite string literals
+            is single-quote, which is escaped as two single-quotes
+            """
             if isinstance(x, bytes):
                 s = x.decode('utf-8')
             else:
@@ -137,11 +139,11 @@ class TroughClient(object):
                     'no healthy trough-sync-master in service registry')
         return master_node['url']
 
-    def write_url_nocache(self, segment_id, schema_id='default'):
+    def write_url_nocache(self, segment_id, schema_id = 'default'):
         url = os.path.join(self.segment_manager_url(), 'provision')
         payload_dict = {'segment': segment_id, 'schema': schema_id}
         self.logger.debug('posting %s to %s', json.dumps(payload_dict), url)
-        response = requests.post(url, json=payload_dict, timeout=600)
+        response = requests.post(url, json=payload_dict, timeout = 600)
         if response.status_code != 200:
             raise TroughException(
                     'unexpected response %r %r: %r from POST %r with '
@@ -175,7 +177,7 @@ class TroughClient(object):
         `{segment: url}`
         '''
         d = {}
-        reql = self.rr.table('services', read_mode='outdated')\
+        reql = self.rr.table('services', read_mode = 'outdated')\
                 .filter({'role': 'trough-read'})\
                 .filter(r.row.has_fields('segment'))\
                 .filter(lambda svc: svc['segment'].coerce_to('string').match(regex))\
@@ -193,7 +195,7 @@ class TroughClient(object):
             yield collections.OrderedDict([('name', result['id'])])
 
     def schema(self, id):
-        reql = self.rr.table('schema', read_mode='outdated').get(id)
+        reql = self.rr.table('schema', read_mode = 'outdated').get(id)
         result = reql.run()
         if result:
             return [collections.OrderedDict([(id, result['sql'])])]
@@ -217,7 +219,7 @@ class TroughClient(object):
                     ('first_heartbeat', result['first_heartbeat']),
                     ('last_heartbeat', result['last_heartbeat'])])
 
-    def write_url(self, segment_id, schema_id='default'):
+    def write_url(self, segment_id, schema_id = 'default'):
         if not segment_id in self._write_url_cache:
             self._write_url_cache[segment_id] = self.write_url_nocache(
                     segment_id, schema_id)
@@ -234,7 +236,7 @@ class TroughClient(object):
                     self._read_url_cache[segment_id])
         return self._read_url_cache[segment_id]
 
-    def write(self, segment_id, sql_tmpl, values=(), schema_id='default'):
+    def write(self, segment_id, sql_tmpl, values = (), schema_id='default'):
         write_url = self.write_url(segment_id, schema_id)
         sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
         sql_bytes = sql.encode('utf-8')
@@ -278,14 +280,14 @@ class TroughClient(object):
             self._read_url_cache.pop(segment_id, None)
             raise e
 
-    async def async_read(self, segment_id, sql_tmpl, values=()):
+    async def async_read(self, segment_id, sql_tmpl, values = ()):
         read_url = self.read_url(segment_id)
         sql = sql_tmpl % tuple(self.sql_value(v) for v in values)
         sql_bytes = sql.encode('utf-8')
 
         async with ClientSession() as session:
             async with session.post(
-                    read_url, data=sql_bytes, headers={
+                    read_url, data = sql_bytes, headers = {
                         'content-type': 'application/sql;charset=utf-8'}) as res:
                 if res.status != 200:
                     self._read_url_cache.pop(segment_id, None)
