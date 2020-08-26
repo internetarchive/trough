@@ -1042,7 +1042,7 @@ class LocalSyncController(SyncController):
             for segment_id in sorted(stale_queue, reverse=True):
                 # essentially does this call with a thread pool:
                 # process_stale_segment(my_segments.get(segment_id), local_mtimes.get(segment_id))
-                pool.submit(process_stale_segment, my_segments.get(segment_id), local_mtimes.get(segment_id), remote_mtimes.get(segment_id))
+                pool.submit(self.process_stale_segment, my_segments.get(segment_id), local_mtimes.get(segment_id), remote_mtimes.get(segment_id))
 
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
