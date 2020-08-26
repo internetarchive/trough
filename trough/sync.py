@@ -917,22 +917,22 @@ class LocalSyncController(SyncController):
             # the write lock. One of the assigned nodes will release the
             # write lock after copying it down, ensuring there is no period
             # of time when no one is serving the segment.
-            continue
+            return
         if local_mtime:
             logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
                          segment_id, datetime.datetime.fromtimestamp(local_mtime),
                          datetime.datetime.fromtimestamp(remote_mtime))
         else:
-            logging.info('copying new segment %r from hdfs', segment_id)
+            logging.info('copying new segment %r from hdfs', segment.id)
         try:
             self.copy_segment_from_hdfs(segment)
         except Exception as e:
-            logging.error('Error during HDFS copy of segment %r', segment_id, exc_info=True)
-            continue
-        self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
+            logging.error('Error during HDFS copy of segment %r', segment.id, exc_info=True)
+            return
+        self.healthy_service_ids.add(self.read_id_tmpl % segment.id)
         write_lock = segment.retrieve_write_lock()
         if write_lock:
-            logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
+            logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment.id)
             self.decommission_writable_segment(segment, write_lock)
 
     def sync(self):
