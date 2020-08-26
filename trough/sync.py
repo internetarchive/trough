@@ -1039,7 +1039,7 @@ class LocalSyncController(SyncController):
 
         num_processed = 0
         with futures.ThreadPoolExecutor(max_workers=5) as pool:
-            for segment_id in sorted(self.stale_queue, reverse=True):
+            for segment_id in sorted(stale_queue, reverse=True):
                 # essentially does this call with a thread pool:
                 # process_stale_segment(my_segments.get(segment_id), local_mtimes.get(segment_id))
                 pool.submit(process_stale_segment, my_segments.get(segment_id), local_mtimes.get(segment_id), remote_mtimes.get(segment_id))
