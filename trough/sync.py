@@ -22,6 +22,7 @@ import ujson
 from hdfs3 import HDFileSystem
 import threading
 import tempfile
+from concurrent import futures
 
 class ClientError(Exception):
     pass
@@ -908,6 +909,32 @@ class LocalSyncController(SyncController):
                 'deleted %s from ring assignments: %s returned %s',
                 self.hostname, query, result)
 
+    def process_stale_segment(segment, local_mtime=None, remote_mtime=None):
+        logging.info('processing stale segment id: %s', segment_id)
+        if not segment or not segment.remote_path:
+            # There is a newer copy in hdfs but we are not assigned to
+            # serve it. Do not copy down the new segment and do not release
+            # the write lock. One of the assigned nodes will release the
+            # write lock after copying it down, ensuring there is no period
+            # of time when no one is serving the segment.
+            continue
+        if local_mtime:
+            logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
+                         segment_id, datetime.datetime.fromtimestamp(local_mtime),
+                         datetime.datetime.fromtimestamp(remote_mtime))
+        else:
+            logging.info('copying new segment %r from hdfs', segment_id)
+        try:
+            self.copy_segment_from_hdfs(segment)
+        except Exception as e:
+            logging.error('Error during HDFS copy of segment %r', segment_id, exc_info=True)
+            continue
+        self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
+        write_lock = segment.retrieve_write_lock()
+        if write_lock:
+            logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
+            self.decommission_writable_segment(segment, write_lock)
+
     def sync(self):
         '''
         assignments = list of segments assigned to this node
@@ -1011,37 +1038,12 @@ class LocalSyncController(SyncController):
             return
 
         num_processed = 0
-        for segment_id in sorted(stale_queue, reverse=True):
-            elapsed = time.time() - start
-            if num_processed > 0 and elapsed > self.sync_loop_timing:
-                logging.info('sync loop timed out after %0.1f sec. You may need to adjust SYNC_LOOP_TIMING.', elapsed)
-                break
-            segment = my_segments.get(segment_id)
-            num_processed += 1
-            if not segment or not segment.remote_path:
-                # There is a newer copy in hdfs but we are not assigned to
-                # serve it. Do not copy down the new segment and do not release
-                # the write lock. One of the assigned nodes will release the
-                # write lock after copying it down, ensuring there is no period
-                # of time when no one is serving the segment.
-                continue
-            if segment_id in local_mtimes:
-                logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
-                             segment_id, datetime.datetime.fromtimestamp(local_mtimes[segment_id]),
-                             datetime.datetime.fromtimestamp(remote_mtimes[segment_id]))
-            else:
-                logging.info('copying new segment %r from hdfs', segment_id)
-            try:
-                self.copy_segment_from_hdfs(segment)
-            except Exception as e:
-                logging.error('Error during HDFS copy of segment %r', segment_id, exc_info=True)
-                continue
-            self.healthy_service_ids.add(self.read_id_tmpl % segment_id)
-            write_lock = segment.retrieve_write_lock()
-            if write_lock:
-                logging.info("Segment %s has a writable copy. It will be decommissioned in favor of the newer read-only copy from HDFS.", segment_id)
-                self.decommission_writable_segment(segment, write_lock)
-        logging.info('processed %s of %s stale segments in %0.1f sec', num_processed, len(stale_queue), time.time() - start)
+        with futures.ThreadPoolExecutor(max_workers=5) as pool:
+            for segment_id in sorted(self.stale_queue, reverse=True):
+                # essentially does this call with a thread pool:
+                # process_stale_segment(my_segments.get(segment_id), local_mtimes.get(segment_id))
+                pool.submit(process_stale_segment, my_segments.get(segment_id), local_mtimes.get(segment_id), remote_mtimes.get(segment_id))
+
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
         if settings['RUN_AS_COLD_STORAGE_NODE']:
