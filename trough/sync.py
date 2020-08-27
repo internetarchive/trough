@@ -917,10 +917,11 @@ class LocalSyncController(SyncController):
             # the write lock. One of the assigned nodes will release the
             # write lock after copying it down, ensuring there is no period
             # of time when no one is serving the segment.
+            logging.info('segment %s appears to be assigned to another machine', segment.id)
             return
         if local_mtime:
             logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
-                         segment_id, datetime.datetime.fromtimestamp(local_mtime),
+                         segment.id, datetime.datetime.fromtimestamp(local_mtime),
                          datetime.datetime.fromtimestamp(remote_mtime))
         else:
             logging.info('copying new segment %r from hdfs', segment.id)
