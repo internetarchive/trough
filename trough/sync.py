@@ -766,7 +766,7 @@ class LocalSyncController(SyncController):
     def start(self):
         init_worker()
         self.heartbeat_thread.start()
-
+        
     def heartbeat_periodically_forever(self):
         while True:
             start = time.time()
@@ -777,7 +777,7 @@ class LocalSyncController(SyncController):
             except:
                 elapsed =  time.time() - start
                 logging.error('problem sending heartbeat', exc_info=True)
-            time.sleep(self.sync_loop_timing - elapsed)
+            time.sleep(max((self.sync_loop_timing - elapsed), 0))
 
     def periodic_heartbeat(self):
         self.heartbeat()
@@ -909,18 +909,19 @@ class LocalSyncController(SyncController):
                 'deleted %s from ring assignments: %s returned %s',
                 self.hostname, query, result)
 
-    def process_stale_segment(segment, local_mtime=None, remote_mtime=None):
-        logging.info('processing stale segment id: %s', segment_id)
+    def process_stale_segment(self, segment, local_mtime=None, remote_mtime=None):
+        logging.info('processing stale segment id: %s', segment.id)
         if not segment or not segment.remote_path:
             # There is a newer copy in hdfs but we are not assigned to
             # serve it. Do not copy down the new segment and do not release
             # the write lock. One of the assigned nodes will release the
             # write lock after copying it down, ensuring there is no period
             # of time when no one is serving the segment.
+            logging.info('segment %s appears to be assigned to another machine', segment.id)
             return
         if local_mtime:
             logging.info('replacing segment %r local copy (mtime=%s) from hdfs (mtime=%s)',
-                         segment_id, datetime.datetime.fromtimestamp(local_mtime),
+                         segment.id, datetime.datetime.fromtimestamp(local_mtime),
                          datetime.datetime.fromtimestamp(remote_mtime))
         else:
             logging.info('copying new segment %r from hdfs', segment.id)
@@ -1037,13 +1038,11 @@ class LocalSyncController(SyncController):
         if not hdfs_up:
             return
 
-        num_processed = 0
         with futures.ThreadPoolExecutor(max_workers=5) as pool:
             for segment_id in sorted(stale_queue, reverse=True):
                 # essentially does this call with a thread pool:
                 # process_stale_segment(my_segments.get(segment_id), local_mtimes.get(segment_id))
                 pool.submit(self.process_stale_segment, my_segments.get(segment_id), local_mtimes.get(segment_id), remote_mtimes.get(segment_id))
-
 
     def provision_writable_segment(self, segment_id, schema_id='default'):
         if settings['RUN_AS_COLD_STORAGE_NODE']:
