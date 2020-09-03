@@ -777,7 +777,7 @@ class LocalSyncController(SyncController):
             except:
                 elapsed =  time.time() - start
                 logging.error('problem sending heartbeat', exc_info=True)
-            time.sleep(self.sync_loop_timing - elapsed)
+            time.sleep(max((self.sync_loop_timing - elapsed), 0))
 
     def periodic_heartbeat(self):
         self.heartbeat()
