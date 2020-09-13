@@ -1038,7 +1038,7 @@ class LocalSyncController(SyncController):
         if not hdfs_up:
             return
 
-        with futures.ThreadPoolExecutor(max_workers=5) as pool:
+        with futures.ThreadPoolExecutor(max_workers=settings['COPY_THREAD_POOL_SIZE']) as pool:
             for segment_id in sorted(stale_queue, reverse=True):
                 # essentially does this call with a thread pool:
                 # process_stale_segment(my_segments.get(segment_id), local_mtimes.get(segment_id))
