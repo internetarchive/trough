@@ -204,7 +204,7 @@ class Segment(object):
         '''returns the count of 'up' copies of this segment to read from, per rethinkdb.'''
         return self.readable_copies_query().count().run()
     def writable_copies_query(self):
-        return healthy_services_query(self.rethinker, role='trough-write').filter({ 'segment': self.id })
+        return healthy_services_query(self.rethinker, role='trough-write').get_all(self.id, index='segment')
     def writable_copy(self):
         '''returns the 'up' copies of this segment to write to, per rethinkdb.'''
         copies = list(self.writable_copies_query().run())
