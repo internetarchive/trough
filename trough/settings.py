@@ -81,7 +81,10 @@ try:
         for key in yaml_settings.keys():
             settings[key] = yaml_settings[key]
 except (IOError, AttributeError) as e:
-    logging.warning('%s -- using default settings', e)
+    if __name__ == '__main__':
+        logging.warning('%s -- using default settings', e)
+    else:
+        logging.debug('%s -- using default settings', e)
 
 # if the user provided a lambda, we have to eval() it, :gulp:
 if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
