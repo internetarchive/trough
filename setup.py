@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1.4',
+    version='0.1.5',
     packages=[
         'trough',
         'trough.shell',
@@ -25,7 +25,7 @@ setup(
         'requests>=2.21.0',
         'six>=1.10.0',
         'snakebite-py3>=3.0',
-        'ujson>=1.35',
+        'ujson-ia>=2.1.1',
         'sqlparse>=0.2.2',
         'uWSGI>=2.0.15',
         'doublethink>=0.2.0',

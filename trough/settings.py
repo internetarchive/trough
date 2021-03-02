@@ -72,6 +72,7 @@ settings = {
     'RUN_AS_COLD_STORAGE_NODE': False,
     'COLD_STORAGE_PATH': "/mount/hdfs/trough-data/{prefix}/{segment_id}.sqlite",
     'COLD_STORE_SEGMENT': False,
+    'COPY_THREAD_POOL_SIZE': 2,
 }
 
 try:
