@@ -182,10 +182,8 @@ copy of a segment.
 The Shell
 =========
 
-Installing and using the shell
-------------------------------
+Installing and using the shell::
 
-::
     git clone https://github.com/internetarchive/trough.git
     cd trough
     virtualenv -p python3 venv
@@ -193,8 +191,8 @@ Installing and using the shell
     pip install -e .
     trough-shell -u rethinkdb://your.server.name/name_of_rethinkdb_database
 
-The last command is likely to be something like:
-``trough-shell -u rethinkdb://rdb.your.org/trough_configuration``
+The last command is likely to be something like::
+    trough-shell -u rethinkdb://rdb.your.org/trough_configuration
 
 You can select any of the rethinkdb machines to which the trough configuration database is deployed; their data is carefully kept in sync.
 
@@ -203,8 +201,7 @@ The trough shell help system
 
 After starting the shell, you should be aware that it contains a help system. Trough has a number of unusual commands that it supports which are not part of SQL.
 
-::
-    trough> help
+HELP::
 
     Documented commands (type help <topic>):
 
