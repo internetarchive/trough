@@ -14,7 +14,7 @@ We tried a number of analytics stores that would work at this scale, but none of
 came close, a system called Druid that was designed for real-time analytics for advertisements. We found
 operations with this system to be too challenging to maintain for a variety of reasons, mostly centered 
 around tuning complexity and running java processes at scale in production (for those of you who have
-never undertaking this challenge, it involves constant vigilance with reference to memory tuning, lest
+never undertaken this challenge, it involves constant vigilance with reference to memory tuning, lest
 the JVM should throw and OOME).
 
 This led to a situation in which we were essentially sure about the features we *didn't want* in our
@@ -46,9 +46,28 @@ running servers with no battery backup as we do at Internet Archive.
 Goals
 =====
 
+Reliability
+-----------
 From the beginning, trough was designed to be a distributed system. An observation that guided its
 development was that a distributed system multiplies, sometimes exponentially, the complexity of any 
 given part. We took time to ensure that the algorithms and components involved were as reliable as possible.
+
+Scalability
+-----------
+We knew at the outset that our system design needed to be able to scale to 10 million or even 100 million+
+individual data segments. As such, we chose a service discovery system that had proven itself reliable
+in production at this scale (RethinkDB).
+
+
+Fault Tolerance
+---------------
+When dealing with very large datasets, it is generally a very good idea to allow the data store to be
+as fault-tolerant as possible. This was a great match with SQLite: it allows the atomic data stores to be
+very small as compared to the overall size of the dataset, so if any one part fails, it allows the system
+to still operate very smoothly around the failed part, and allows the operator to concentrate on correcting
+a small atomic data store rather than looking through a gigantic data store for a single bad line or 
+corrupted file.
+
 
 Terminology
 ===========
@@ -112,8 +131,8 @@ in the YAML settings file (MINIMUM_ASSIGNMENTS and COLD_STORE_SEGMENTS)
 
 Cold Storage Workers
 --------------------
- a set of machines that service queries to SQLite segments, reading into
- NFS-mounted HDFS. Cold storage workers cannot make their segments writable and may have slower
+a set of machines that service queries to SQLite segments, reading into
+NFS-mounted HDFS. Cold storage workers cannot make their segments writable and may have slower
 query times, but do not use local storage.
 
 
@@ -195,49 +214,44 @@ After starting the shell, you should be aware that it contains a help system. Tr
 Trough-specific shell commands
 ------------------------------
 
-``CONNECT``
+CONNECT::
 
-``
         Connect to one or more trough "segments" (sqlite databases).
         Usage:
 
         - CONNECT segment [segment...]
         - CONNECT MATCHING <regex>
 
-        See also SHOW CONNECTIONS``
+        See also SHOW CONNECTIONS
 
-``FORMAT``
+FORMAT::
 
-``
         Set result output display format. Options:
 
         - FORMAT TABLE   - tabular format (the default)
         - FORMAT PRETTY  - pretty-printed json
         - FORMAT RAW     - raw json
 
-        With no argument, displays current output format.``
+        With no argument, displays current output format.
 
-``PROMOTE``
+PROMOTE::
 
-``
         Promote connected segments to permanent storage in hdfs.
 
         Takes no arguments. Only supported in read-write mode.``
 
-``REGISTER``
+REGISTER::
 
-``
         Register a new schema. Reads the schema from 'schema_file' argument. 
 
         Usage:
 
         REGISTER SCHEMA schema_name schema_file
         
-        See also: SHOW SCHEMA(S)``
+        See also: SHOW SCHEMA(S)
 
-``SHOW``
+SHOW::
 
-``
         SHOW command, like MySQL. Available subcommands:
         - SHOW TABLES
         - SHOW CREATE TABLE
@@ -245,34 +259,37 @@ Trough-specific shell commands
         - SHOW SCHEMA schema-name
         - SHOW SCHEMAS
         - SHOW SEGMENTS
-        - SHOW SEGMENTS MATCHING <regex>``
+        - SHOW SEGMENTS MATCHING <regex>
 
-``INFILE``
+INFILE::
 
-``
         Read and execute SQL commands from a file.
 
         Usage:
 
-        INFILE filename``
+        INFILE filename
 
-``SHRED``
+SHRED::
 
 
-``
         Delete segments entirely from trough. CAUTION: Not reversible!
         Usage:
 
-        SHRED SEGMENT segment_id [segment_id...]``
+        SHRED SEGMENT segment_id [segment_id...]
 
 SQLite SQL dialect
 ------------------
 
+Trough leverages SQLite's SQL dialect, completely unmodified, to query segments. Rather than writing a 
+(new, different, unreliable) SQL variant, we decided to use SQLite's, which is extensively documented.
+This also makes writing drivers for ORM systems to interface with trough relatively easy if they already
+support SQLite's SQL variant.
+
 Multiple connections
 --------------------
 
-Aggregation Functions
----------------------
+Trough's shell allows you to connect to thousands or even millions of data segments simultaneously, and
+can send queries efficiently to all connected segments.
 
 
 Maintenance and FAQs
