@@ -129,8 +129,8 @@ After starting the shell, you should be aware that it contains a help system. Tr
     trough> help
 
     Documented commands (type help <topic>):
-    ========================================
-    EOF  connect  format  promote  register  show 
+
+    EOF  connect  format  promote  register  show
     bye  exit     infile  quit     select    shred
 
 Trough-specific shell commands
