@@ -86,61 +86,64 @@ the problem of requiring N copies of data segments to be published for resilienc
 entry at https://en.wikipedia.org/wiki/Consistent_hashing#Basic_Technique for more information on 
 consistent hash rings more generally. 
 
-Design
-======
+Topology
+========
 
 The Trough system comprises a few major parts:
 
-RethinkDB: used as a metadata store
+RethinkDB
+---------
+RethinkDB is used by trough as a metadata store that coordinates the synchronization process. For more
+information on what data is stored in RethinkDB and how it is used, see the RethinkDB Tables section.
 
-"Sync Servers": a set of 3 or more machines that run the same sync server code. They are responsible for 
+
+Sync Servers
+------------
+a set of 3 or more machines that run the same sync server code. They are responsible for 
 creating Consistent Hash Rings to assign the set of SQLite segments to the available pool of "workers."
 The code that runs on a sync server is covered in ``sync.py`` in the class ``MasterSyncController``
 
-"Workers": a set of any number of machines that serve as a storage pool to which the overall set of 
+Workers
+-------
+a set of any number of machines that serve as a storage pool to which the overall set of 
 segments can be assigned. For downtime resiliency, Trough assigns multiple copies of "hot" segments
 to a pool of workers. The details of which segments are considered hot vs cold can be configured
 in the YAML settings file (MINIMUM_ASSIGNMENTS and COLD_STORE_SEGMENTS)
 
-"Cold Storage Workers": a set of machines that service queries to SQLite segments, reading into
-NFS-mounted HDFS. Cold storage workers cannot make their segments writable and may have slower
+Cold Storage Workers
+--------------------
+ a set of machines that service queries to SQLite segments, reading into
+ NFS-mounted HDFS. Cold storage workers cannot make their segments writable and may have slower
 query times, but do not use local storage.
 
 
-Topology
---------
-
-RethinkDB
-~~~~~~~~~
-RethinkDB is used by trough as a metadata store that coordinates the synchronization process. For more
-information on what data is stored in RethinkDB and how it is used, see the RethinkDB Tables section.
-
-Sync Servers
-~~~~~~~~~~~~
-Sync Servers or Sync Masters coordinate the which segments are assigned to which servers. They do most
-of this work using a Consistent Hash Ring. See Terminology for more information on consistent hash rings.
-
-
-Workers
-~~~~~~~
-
 Interaction with HDFS
----------------------
+=====================
 
-Cold Storage
-------------
+Trough uses HDFS as a storage system to keep canonical copies of data, as well as an NFS-mounted system
+for cold storage.
+
+As a Canonical Data Store
+-------------------------
+Trough expects to disover SQLite data segments (recursively) under a particular HDFS path. It searches
+for them based on the value of the HDFS_PATH setting.
+
+As a Cold Storage Data Store
+----------------------------
+Trough uses an NFS mount to allow cold storage workers to run queries against sqlite segments while
+still stored directy in HDFS.
 
 RethinkDB Tables
-----------------
+================
 
 Assignment
-~~~~~~~~~~
+----------
 
 When a segment is first detected in HDFS, it is *assigned* to a set of *hot storage workers* by adding
 an assignment record to the assignment table.
 
 Services
-~~~~~~~~
+--------
 
 The services table is trough's service discovery system. After copying a segment down from HDFS, it 
 advertises a *service* in the services table to be discovered. As long as the server and segment
@@ -149,7 +152,7 @@ record stored in this table. This regular update process allows us to automatica
 "up" copy of the data in the case that one or more hot storage workers goes offline.
 
 Lock
-~~~~
+----
 
 The lock table records data on which hot storage worker holds a "write lock" (see Terminology) on a given
 copy of a segment.
