@@ -56,16 +56,35 @@ Terminology
 **Segment:** a "segment" in trough is a free-standing SQLite database. From the system's overall perspective
 these segments are considered an atomic data storage container, or a "segment" of the total data set.
 
-**Write Provisioning:**
+**Write Provisioning:** when a segment is write provisioned in trough, a specific assigned hot storage worker
+acquires a "write lock" on the segment. This write lock locks a specific machine as the writer worker, rather
+than guaranteeing that a particular process can write to it. While write-provisioned, all queries for the
+write-provisioned segment proxy to the machine that holds the write lock, to guarantee consistency at the
+expense of resiliency. When write are completed to a writable segment, the segment should be **promoted**
 
-**Promotion:**
+**Promotion:** When a segment is promoted, it is moved to the upstream data store, HDFS, as a canonical
+copy of the data. Trough compares segment modification times in HDFS to the modification times on hot
+storage workers. If the HDFS copy is *newer* than the copy from the hot tier, it is considered to be
+"fresher." At this point, the hot tier worker downloads a copy of the segment from HDFS, overwriting
+the local copy. This process of copying down from a more authoritative upstream source gives a convenient
+method of overwriting specific segments if they contain inaccurate or out-of-date data. In particular,
+this mechanism can be used to overwrite, for example, realtime collected statistical information with
+a verified-correct copy of the data later. This allows for a system that quickly collects relatively
+accurate realtime statistics and allows them to be overwritten later with a canonical copy of the data.
 
 **Hot Storage Tier:** a segment stored in the hot storage tier is available to be made into a writeable
-segment by issuing a "write provisioning" request
+segment by issuing a "write provisioning" request. Only data stored in the hot storage tier can be
+write-provisioned.
 
-**Cold Storage Tier:**
+**Cold Storage Tier:** Trough allows for data stored in HDFS to also be queried in-place in HDFS over
+an NFS connection. Data segments that are stored and queried in this way are slightly slower and
+cannot be write-provisioned.
 
-
+**Consistent Hash Ring:** A consistent hash ring is a data structure that allows a set of target data
+to be assigned conveniently and easily to a set of servers. Trough uses N consistent hash rings to model
+the problem of requiring N copies of data segments to be published for resiliency. See the wikipedia
+entry at https://en.wikipedia.org/wiki/Consistent_hashing#Basic_Technique for more information on 
+consistent hash rings more generally. 
 
 Design
 ======
@@ -79,7 +98,13 @@ creating Consistent Hash Rings to assign the set of SQLite segments to the avail
 The code that runs on a sync server is covered in ``sync.py`` in the class ``MasterSyncController``
 
 "Workers": a set of any number of machines that serve as a storage pool to which the overall set of 
-segments can be assigned. For resiliency, Trough assigns multiple copies of "hot" segments
+segments can be assigned. For downtime resiliency, Trough assigns multiple copies of "hot" segments
+to a pool of workers. The details of which segments are considered hot vs cold can be configured
+in the YAML settings file (MINIMUM_ASSIGNMENTS and COLD_STORE_SEGMENTS)
+
+"Cold Storage Workers": a set of machines that service queries to SQLite segments, reading into
+NFS-mounted HDFS. Cold storage workers cannot make their segments writable and may have slower
+query times, but do not use local storage.
 
 
 Topology
@@ -87,9 +112,14 @@ Topology
 
 RethinkDB
 ~~~~~~~~~
+RethinkDB is used by trough as a metadata store that coordinates the synchronization process. For more
+information on what data is stored in RethinkDB and how it is used, see the RethinkDB Tables section.
 
 Sync Servers
 ~~~~~~~~~~~~
+Sync Servers or Sync Masters coordinate the which segments are assigned to which servers. They do most
+of this work using a Consistent Hash Ring. See Terminology for more information on consistent hash rings.
+
 
 Workers
 ~~~~~~~
@@ -99,6 +129,32 @@ Interaction with HDFS
 
 Cold Storage
 ------------
+
+RethinkDB Tables
+----------------
+
+Assignment
+~~~~~~~~~~
+
+When a segment is first detected in HDFS, it is *assigned* to a set of *hot storage workers* by adding
+an assignment record to the assignment table.
+
+Services
+~~~~~~~~
+
+The services table is trough's service discovery system. After copying a segment down from HDFS, it 
+advertises a *service* in the services table to be discovered. As long as the server and segment
+remain up-to-date and healthy, the hot storage worker will update the *Time-to-Live* of the service
+record stored in this table. This regular update process allows us to automatically fail to another
+"up" copy of the data in the case that one or more hot storage workers goes offline.
+
+Lock
+~~~~
+
+The lock table records data on which hot storage worker holds a "write lock" (see Terminology) on a given
+copy of a segment.
+
+
 
 
 The Shell
@@ -138,47 +194,47 @@ Trough-specific shell commands
 
 ``CONNECT``
 
-::
+``
         Connect to one or more trough "segments" (sqlite databases).
         Usage:
 
         - CONNECT segment [segment...]
         - CONNECT MATCHING <regex>
 
-        See also SHOW CONNECTIONS
+        See also SHOW CONNECTIONS``
 
 ``FORMAT``
 
-::
+``
         Set result output display format. Options:
 
         - FORMAT TABLE   - tabular format (the default)
         - FORMAT PRETTY  - pretty-printed json
         - FORMAT RAW     - raw json
 
-        With no argument, displays current output format.
+        With no argument, displays current output format.``
 
 ``PROMOTE``
 
-::
+``
         Promote connected segments to permanent storage in hdfs.
 
-        Takes no arguments. Only supported in read-write mode.
+        Takes no arguments. Only supported in read-write mode.``
 
 ``REGISTER``
 
-::
+``
         Register a new schema. Reads the schema from 'schema_file' argument. 
 
         Usage:
 
         REGISTER SCHEMA schema_name schema_file
         
-        See also: SHOW SCHEMA(S)
+        See also: SHOW SCHEMA(S)``
 
 ``SHOW``
 
-::
+``
         SHOW command, like MySQL. Available subcommands:
         - SHOW TABLES
         - SHOW CREATE TABLE
@@ -186,25 +242,25 @@ Trough-specific shell commands
         - SHOW SCHEMA schema-name
         - SHOW SCHEMAS
         - SHOW SEGMENTS
-        - SHOW SEGMENTS MATCHING <regex>
+        - SHOW SEGMENTS MATCHING <regex>``
 
 ``INFILE``
 
-::
+``
         Read and execute SQL commands from a file.
 
         Usage:
 
-        INFILE filename
+        INFILE filename``
 
 ``SHRED``
 
 
-::
+``
         Delete segments entirely from trough. CAUTION: Not reversible!
         Usage:
 
-        SHRED SEGMENT segment_id [segment_id...]
+        SHRED SEGMENT segment_id [segment_id...]``
 
 SQLite SQL dialect
 ------------------
