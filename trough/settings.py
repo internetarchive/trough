@@ -14,6 +14,10 @@ def configure_logging():
     logging.getLogger('urllib3').setLevel(level + 20)
     logging.getLogger('snakebite').setLevel(level + 10)
     logging.getLogger('hdfs3').setLevel(level + 10)
+    
+    #emit warning if settings file failed to load properly
+    if file_load_error is not None:
+        logging.warning('%s -- using default settings', file_load_error)
 
 def sizeof_fmt(num, suffix='B'):
     for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
@@ -75,13 +79,16 @@ settings = {
     'COPY_THREAD_POOL_SIZE': 2,
 }
 
+
+file_load_error= None
+
 try:
     with open(os.environ.get('TROUGH_SETTINGS') or '/etc/trough/settings.yml') as f:
         yaml_settings = yaml.safe_load(f)
         for key in yaml_settings.keys():
             settings[key] = yaml_settings[key]
 except (IOError, AttributeError) as e:
-    logging.warning('%s -- using default settings', e)
+    file_load_error = e
 
 # if the user provided a lambda, we have to eval() it, :gulp:
 if "lambda" in str(settings['MINIMUM_ASSIGNMENTS']):
