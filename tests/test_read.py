@@ -73,7 +73,7 @@ class TestReadServer(unittest.TestCase):
         cursor.close()
         connection.close()
     @mock.patch("trough.read.urllib")
-    def test_proxy_for_write_segment(self, requests):
+    def test_proxy_for_write_segment(self, urllib):
         class Request(mock.Mock):
             def urlopen(*args, **kwargs):
                 response = mock.Mock()
@@ -84,7 +84,7 @@ class TestReadServer(unittest.TestCase):
                 response.__enter__ = lambda *args, **kwargs: response
                 response.__exit__ = lambda *args, **kwargs: None
                 return response
-        urllib.requests.Request = Request
+        urllib.request.Request = Request
         consul = mock.Mock()
         registry = mock.Mock()
         rethinker = doublethink.Rethinker(db="trough_configuration", servers=settings['RETHINKDB_HOSTS'])
