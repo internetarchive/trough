@@ -296,3 +296,26 @@ Maintenance and FAQs
 Known Issues
 ============
 
+Developer Installation
+======================
+
+One of the difficult parts in installing trough is obtaining a copy of libhdfs3. This library can be
+exceedingly difficult to locate and install. I've found that the best way to get a copy of it on OS X::
+
+    brew install miniconda
+    conda install libhdfs3
+
+This installed libhdfs3 to /usr/local/Caskroom/miniconda/base on my system, but this may vary. You can
+find the prefix for your installed miniconda packages via::
+
+    miniconda list
+
+You should symlink or copy the .dylib files from their location here to something like /usr/local/lib
+so python can find them easily.
+
+Compiled dpkg distributions are also available here:
+https://github.com/jkafader/libhdfs3-deb/
+
+specifically compiled for ubuntu xenial at the moment, but this repo leverages more or less the same
+technique of installing miniconda and then using that to install libhdfs3.
+
