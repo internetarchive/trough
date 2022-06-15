@@ -1,8 +1,11 @@
 import logging
-import yaml
-import sys
 import os
 import socket
+import sys
+
+import snakebite.errors
+import sqlite3
+import yaml
 
 def configure_logging():
     logging.root.handlers = []
@@ -111,3 +114,36 @@ def init_worker():
         logging.info("LOCAL_DATA path %s does not exist. Attempting to make dirs." % settings['LOCAL_DATA'])
         os.makedirs(settings['LOCAL_DATA'])
 
+
+# Exceptions which, if unhandled, will *not* be sent to sentry as events.
+# These exceptions are filtered to reduce excessive event volume from
+# burdenting sentry infrastructure.
+SENTRY_FILTERED_EXCEPTIONS = (
+    snakebite.errors.FileNotFoundException,
+    sqlite3.DatabaseError,
+    sqlite3.OperationalError,
+)
+
+
+def try_init_sentry():
+    """Attempts to initialize the sentry sdk, if available."""
+
+    def _before_send(event, hint):
+        # see: https://docs.sentry.io/platforms/python/configuration/filtering/#event-hints
+        if 'exc_info' in hint:
+            exc_type, exc_value, tb = hint['exc_info']
+            if isinstance(exc_value, SENTRY_FILTERED_EXCEPTIONS):
+                return None
+
+        return event
+
+    sentry_dsn = settings.get('SENTRY_DSN')
+    if sentry_dsn is not None:
+        try:
+            import sentry_sdk
+            sentry_dk.init(sentry_dsn, before_send=_before_send)
+        except ImportError:
+            logging.warning(
+                "'SENTRY_DSN' setting is configured but 'sentry_sdk' module "
+                "not available. Install to use sentry."
+            )
