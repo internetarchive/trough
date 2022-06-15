@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import trough
-from trough.settings import settings
+from trough.settings import settings, try_init_sentry
 import sqlite3
 import ujson
 import os
@@ -10,12 +10,7 @@ import requests
 import urllib
 import doublethink
 
-if settings['SENTRY_DSN']:
-    try:
-        import sentry_sdk
-        sentry_sdk.init(settings['SENTRY_DSN'])
-    except ImportError:
-        logging.warning("'SENTRY_DSN' setting is configured but 'sentry_sdk' module not available. Install to use sentry.")
+try_init_sentry()
 
 class ReadServer:
     def __init__(self):

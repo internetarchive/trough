@@ -3,7 +3,7 @@ import abc
 import logging
 import doublethink
 import rethinkdb as r
-from trough.settings import settings, init_worker
+from trough.settings import settings, init_worker, try_init_sentry
 from snakebite import client
 import socket
 import json
@@ -27,12 +27,8 @@ from concurrent import futures
 class ClientError(Exception):
     pass
 
-if settings['SENTRY_DSN']:
-    try:
-        import sentry_sdk
-        sentry_sdk.init(settings['SENTRY_DSN'])
-    except ImportError:
-        logging.warning("'SENTRY_DSN' setting is configured but 'sentry_sdk' module not available. Install to use sentry.")
+
+try_init_sentry()
 
 
 def healthy_services_query(rethinker, role):
@@ -638,7 +634,7 @@ class MasterSyncController(SyncController):
                         logging.info("Removing old assignment to node '%s' for segment [%s]: (%s will be deleted)", assignment.node, segment.id, assignment)
                         self.registry.unassign(assignment)
                         del ring_assignments[dict_key]
-                    ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={ 
+                    ring_assignments[dict_key] = ring_assignments.get(dict_key, Assignment(self.rethinker, d={
                                                         'hash_ring': ring.id,
                                                         'node': assigned_node,
                                                         'segment': segment.id,
@@ -766,7 +762,7 @@ class LocalSyncController(SyncController):
     def start(self):
         init_worker()
         self.heartbeat_thread.start()
-        
+
     def heartbeat_periodically_forever(self):
         while True:
             start = time.time()
