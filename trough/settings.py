@@ -141,7 +141,7 @@ def try_init_sentry():
     if sentry_dsn is not None:
         try:
             import sentry_sdk
-            sentry_dk.init(sentry_dsn, before_send=_before_send)
+            sentry_sdk.init(sentry_dsn, before_send=_before_send)
         except ImportError:
             logging.warning(
                 "'SENTRY_DSN' setting is configured but 'sentry_sdk' module "
