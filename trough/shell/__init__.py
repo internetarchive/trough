@@ -267,7 +267,7 @@ class TroughShell(cmd.Cmd):
         Syntax: select...
 
         Example: Send query "select * from host_statistics;" to server
-        trough> query select * from host_statistics;
+        trough> select * from host_statistics;
         '''
         if not self.segments:
             print('not connected to any segments')
@@ -351,14 +351,15 @@ class TroughShell(cmd.Cmd):
                     'sql (in read-only mode)', 'infile', filename)
 
         
-        
     def do_register(self, line):
         '''
-        Register a new schema. Reads the schema from 'schema_file' argument. 
+        Register a new schema. Reads the schema from 'schema_file' argument, registers as "schema_name" 
 
         Usage:
 
         REGISTER SCHEMA schema_name schema_file
+        or
+        REGISTER schema_name schema_file
         
         See also: SHOW SCHEMA(S)
         '''
@@ -366,10 +367,14 @@ class TroughShell(cmd.Cmd):
         if args[0].lower() == 'schema':
             args.pop(0)
         if len(args) != 2:
+            print("please provide exactly two arguments: schema_name schema_file. You provided \"%s\"." % (" ".join(args), line))
             self.do_help('register')
             return
         with open(args[1], 'r') as infile:
-            self.cli.register_schema(args[0], infile.read())
+            schema = infile.read()
+            print("registering schema '%s'...\n%s" % (args[0], schema))
+            self.cli.register_schema(args[0], schema)
+            print("Done.")
             
 
     def do_shred(self, argument):
@@ -397,7 +402,8 @@ class TroughShell(cmd.Cmd):
             return
 
     def default(self, line):
-        keyword_args = line.strip().split(maxsplit=2)
+        keyword_args = line.strip().split(maxsplit=1)
+
         if len(keyword_args) == 1:
             keyword, args = keyword_args[0], ''
         else:

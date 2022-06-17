@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1.4',
+    version='0.1.5',
     packages=[
         'trough',
         'trough.shell',
@@ -20,7 +20,7 @@ setup(
         'License :: OSI Approved :: BSD License',
     ],
     install_requires=[
-        'protobuf>=3.7.1',
+        'protobuf>=3.7.1,<3.20',
         'PyYAML>=5.1',
         'requests>=2.21.0',
         'six>=1.10.0',

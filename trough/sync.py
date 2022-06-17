@@ -715,7 +715,10 @@ class MasterSyncController(SyncController):
             raise Exception('No healthy node to assign to')
         post_url = 'http://%s:%s/provision' % (assignment['node'], self.sync_local_port)
         json_data = {'segment': segment_id, 'schema': schema_id}
-        response = requests.post(post_url, json=json_data)
+        try:
+            response = requests.post(post_url, json=json_data)
+        except Exception as e:
+            logging.error("Error while provisioning segment '%s'! This segment may have been provisioned without a schema! Exception was: %s", segment_id, e)
         if response.status_code != 200:
             raise Exception('Received a %s response while provisioning segment "%s" on node %s:\n%r\nwhile posting %r to %r' % (response.status_code, segment_id, assignment['node'], response.text, ujson.dumps(json_data), post_url))
         result_dict = ujson.loads(response.text)
@@ -732,7 +735,10 @@ class MasterSyncController(SyncController):
         post_url = 'http://%s:%s/promote' % (write_lock['node'], self.sync_local_port)
         json_data = {'segment': segment_id}
         logging.info('posting %s to %s', json.dumps(json_data), post_url)
-        response = requests.post(post_url, json=json_data)
+        try:
+            response = requests.post(post_url, json=json_data)
+        except Exception as e:
+            logging.error("Error while promoting segment '%s' to HDFS! Exception was: %s", segment_id, e)
         if response.status_code != 200:
             raise Exception('Received a %s response while promoting segment "%s" to HDFS:\n%r\nwhile posting %r to %r' % (response.status_code, segment_id, response.text, ujson.dumps(json_data), post_url))
         response_dict = ujson.loads(response.content)
