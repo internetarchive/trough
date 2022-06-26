@@ -9,6 +9,7 @@ import logging
 from urllib.parse import urlparse, urlencode
 from http.client import HTTPConnection
 import socks
+import sqlparse
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(
@@ -130,9 +131,9 @@ class TroughConnection():
     def execute(self, query):
         return self.cursor().execute(query)
     def executemany(self, queries):
-        return self.cursor().executemany(query)
+        return self.cursor().executemany(queries)
     def executescript(self, queries):
-        return self.cursor().executescript(query)
+        return self.cursor().executescript(queries)
     def close(self):
         pass
     def commit(self):
