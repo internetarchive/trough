@@ -251,7 +251,7 @@ class TroughShell(cmd.Cmd):
                     raise result
                 except:
                     if isinstance(result, trough.client.TroughException) and result.returned_message and result.payload:
-                        print("An error occured during execution:")
+                        print("An error occurred during execution:")
                         print(result.returned_message.replace("500 Server Error: ", ""))
                         print("(query was: '%s')" % result.payload.decode().strip())
                     else:
