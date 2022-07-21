@@ -30,7 +30,7 @@ setup(
         'uWSGI>=2.0.15',
         'doublethink>=0.2.0',
         'uhashring>=0.7,<1.0',
-        'flask>=1.0.2',
+        'flask>=1.0.2,<2',
         'sqlitebck>=1.4',
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
