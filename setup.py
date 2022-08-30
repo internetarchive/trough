@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1.5',
+    version='0.2.0',
     packages=[
         'trough',
         'trough.shell',
