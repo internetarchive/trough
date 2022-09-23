@@ -1,4 +1,4 @@
-protobuf==3.7.1
+protobuf==3.18.3
 PyYAML==5.1
 requests==2.21.0
 six==1.10.0
