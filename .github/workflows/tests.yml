@@ -1,0 +1,58 @@
+name: tests
+on: [pull_request, push]
+jobs:
+  tests:
+    # IF copied from https://github.com/psf/black/blob/main/.github/workflows/lint.yml:
+    # We want to run on external PRs, but not on our own internal PRs as they'll be run
+    # by the push to the branch. Without this if check, checks are duplicated since
+    # internal PRs match both the push and pull_request events.
+    if:
+      github.event_name == 'push' || github.event.pull_request.head.repo.full_name !=
+      github.repository
+
+    runs-on: ubuntu-xenial
+
+    services:
+      rethinkdb:
+        image: rethinkdb
+        ports:
+          - "28015:28015"
+      hdfs:
+        image: chalimartines/cdh5-pseudo-distributed
+        ports:
+          - "8020:8020"
+          - "50070:50070"
+          - "50010:50010"
+          - "50020:50020"
+          - "50075:50075"
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.5"
+      - name: Install Apt Dependencies
+        run: sudo apt-get install -y libcurl3 libgsasl7 libntlm0
+      - name: Fetch pre-built libhdfs3
+        run: curl -sSLvO https://github.com/nlevitt/libhdfs3-deb/raw/master/libhdfs3_1-1.deb
+      - name: Install libhdfs3
+        run: sudo dpkg -i libhdfs3_1-1.deb
+      - name: Install Python project dependencies
+        run: pip install -e . --no-input
+      - name: Install pytest
+        run: pip install pytest
+      - name: Not sure what this is
+        run: 'sync.py >>/tmp/trough-sync-local.out 2>&1 &'
+      - name: Sleep for 10 seconds
+        run: sleep 10s
+        shell: bash
+      - name: start things up
+        run: python -c "import doublethink ; from trough.settings import settings ; rr = doublethink.Rethinker(settings['RETHINKDB_HOSTS']) ; rr.db('trough_configuration').wait().run()"
+      - run: 'uwsgi --http :6444 --master --processes=2 --harakiri=3200 --http-timeout=3200 --socket-timeout=3200 --max-requests=50000 --vacuum --die-on-term --wsgi-file scripts/reader.py >>/tmp/trough-read.out 2>&1 &'
+      - run: 'uwsgi --http :6222 --master --processes=2 --harakiri=240 --http-timeout=240 --max-requests=50000 --vacuum --die-on-term --wsgi-file scripts'
+      - run: 'sync.py --server >>/tmp/trough-sync-server.out 2>&1 &'
+      - run: 'uwsgi --http :6112 --master --processes=2 --harakiri=7200 --http-timeout==7200 --max-requests=50000 --vacuum --die-on-term --mount '
+      - run: 'uwsgi --http :6111 --master --processes=2 --harakiri=7200 --http-timeout==7200 --max-requests=50000 --vacuum --die-on-term --mount /=trough.wsgi.segment_manager:server >>/tmp/trough-segment-manager-server.out 2>&1 &'
+      - run: pytest --tb=native -v tests
