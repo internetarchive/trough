@@ -39,6 +39,8 @@ jobs:
         run: curl -sSLvO https://github.com/internetarchive/libhdfs3-deb/raw/master/builds/focal/libhdfs3.deb
       - name: Install libhdfs3
         run: sudo dpkg -i libhdfs3.deb
+      - name: Run ldconfig to make libhdfs3.so findable
+        run: sudo ldconfig
       - name: Install Python project dependencies
         run: pip install -e . --no-input
       - name: Install pytest
