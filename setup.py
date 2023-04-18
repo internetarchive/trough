@@ -31,7 +31,6 @@ setup(
         'doublethink>=0.2.0',
         'uhashring>=0.7,<1.0',
         'flask>=1.0.2,<2',
-        'sqlitebck>=1.4',
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
         'aiohttp>=2.3.10,<=3.0.0b0', # >3.0.0b0 requires python 3.5.3+
