@@ -1120,10 +1120,10 @@ class LocalSyncController(SyncController):
             dest = sqlite3.connect(temp_file.name)
             # originally: sqlitebck.copy(source, dest)
             # see https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup
-            # may need to update pages value: "the number of pages to copy at a time
+            # do we want to set pages value? "the number of pages to copy at a time
             # If equal to or less than 0, the entire database is copied in a single step.
             # Defaults to -1."
-            source.backup(dest, pages=1)
+            source.backup(dest)
             source.close()
             dest.close()
             logging.info(
