@@ -1110,7 +1110,6 @@ class LocalSyncController(SyncController):
         return result_dict
 
     def do_segment_promotion(self, segment):
-        import sqlitebck
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
             # "online backup" see https://www.sqlite.org/backup.html
@@ -1119,7 +1118,12 @@ class LocalSyncController(SyncController):
                     temp_file.name)
             source = sqlite3.connect(segment.local_path())
             dest = sqlite3.connect(temp_file.name)
-            sqlitebck.copy(source, dest)
+            # originally: sqlitebck.copy(source, dest)
+            # see https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup
+            # do we want to set pages value? "the number of pages to copy at a time
+            # If equal to or less than 0, the entire database is copied in a single step.
+            # Defaults to -1."
+            source.backup(dest)
             source.close()
             dest.close()
             logging.info(

@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.1.5',
+    version='0.2.0',
     packages=[
         'trough',
         'trough.shell',
@@ -30,8 +30,7 @@ setup(
         'uWSGI>=2.0.15',
         'doublethink>=0.2.0',
         'uhashring>=0.7,<1.0',
-        'flask>=1.0.2',
-        'sqlitebck>=1.4',
+        'flask>=1.0.2,<2',
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
         'aiohttp>=2.3.10,<=3.0.0b0', # >3.0.0b0 requires python 3.5.3+
