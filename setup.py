@@ -34,7 +34,7 @@ setup(
         'hdfs3>=0.2.0',
         'aiodns>=1.2.0',
         'aiohttp==3.8.4', # 3.8.4 requires python 3.6+
-        'async-timeout<3.0.0',       # >=3.0.0 requires python 3.5.3+
+        'async-timeout==4.0.2', # 4.0.2 requires python 3.6+
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),
