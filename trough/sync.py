@@ -19,7 +19,8 @@ import re
 import contextlib
 from uhashring import HashRing
 import ujson
-from hdfs3 import HDFileSystem
+# from hdfs3 import HDFileSystem
+import pyarrow
 import threading
 import tempfile
 from concurrent import futures
