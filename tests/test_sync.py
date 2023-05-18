@@ -12,7 +12,8 @@ import random
 import string
 import tempfile
 import logging
-from hdfs3 import HDFileSystem
+import pyarrow
+# from hdfs3 import HDFileSystem
 import pytest
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))

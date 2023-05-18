@@ -3,7 +3,7 @@ import os
 import socket
 import sys
 
-import snakebite.errors
+# import snakebite.errors
 import sqlite3
 import yaml
 
@@ -119,7 +119,7 @@ def init_worker():
 # These exceptions are filtered to reduce excessive event volume from
 # burdenting sentry infrastructure.
 SENTRY_FILTERED_EXCEPTIONS = (
-    snakebite.errors.FileNotFoundException,
+    # snakebite.errors.FileNotFoundException,
     sqlite3.DatabaseError,
     sqlite3.OperationalError,
 )

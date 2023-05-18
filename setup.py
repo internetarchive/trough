@@ -31,6 +31,8 @@ setup(
         'doublethink>=0.2.0',
         'uhashring>=0.7,<1.0',
         'flask>=1.0.2,<2',
+        'MarkUpSafe<2.1',
+        'itsdangerous<2.1',
         'aiodns==3.0.0',
         'aiohttp==3.8.4', # 3.8.4 requires python 3.6+
         'async-timeout==4.0.2', # 4.0.2 requires python 3.6+

@@ -4,7 +4,8 @@ import logging
 import doublethink
 import rethinkdb as r
 from trough.settings import settings, init_worker, try_init_sentry
-from snakebite import client
+import pyarrow
+# from snakebite import client
 import socket
 import json
 import os
@@ -20,7 +21,6 @@ import contextlib
 from uhashring import HashRing
 import ujson
 # from hdfs3 import HDFileSystem
-import pyarrow
 import threading
 import tempfile
 from concurrent import futures
