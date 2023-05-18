@@ -12,8 +12,8 @@ import random
 import string
 import tempfile
 import logging
+os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
 import pyarrow
-# from hdfs3 import HDFileSystem
 import pytest
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
@@ -221,7 +221,7 @@ class TestMasterSyncController(unittest.TestCase):
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
         sync.init(self.rethinker)
-        self.snakebite_client = mock.Mock()
+        self.hdfs_client = mock.Mock()
         self.rethinker.table("services").delete().run()
         self.rethinker.table("assignment").delete().run()
     def get_foreign_controller(self):
@@ -410,7 +410,7 @@ class TestLocalSyncController(unittest.TestCase):
         self.rethinker = doublethink.Rethinker(db=random_db, servers=settings['RETHINKDB_HOSTS'])
         self.services = doublethink.ServiceRegistry(self.rethinker)
         self.registry = sync.HostRegistry(rethinker=self.rethinker, services=self.services)
-        self.snakebite_client = mock.Mock()
+        self.hdfs_client = mock.Mock()
         self.rethinker.table("services").delete().run()
     def make_fresh_controller(self):
         return sync.LocalSyncController(rethinker=self.rethinker,
@@ -419,7 +419,7 @@ class TestLocalSyncController(unittest.TestCase):
     # v don't log out the error message on error test below.
     @mock.patch("trough.sync.client")
     @mock.patch("trough.sync.logging.error")
-    def test_copy_segment_from_hdfs(self, error, snakebite):
+    def test_copy_segment_from_hdfs(self, error, hdfs_client):
         results = [{'error': 'test error'}]
         class C:
             def __init__(*args, **kwargs):
@@ -430,7 +430,7 @@ class TestLocalSyncController(unittest.TestCase):
                         # create empty dest file
                         with open(dst, 'wb') as f: pass
                     yield result
-        snakebite.Client = C
+        hdfs_client.Client = C
         controller = self.make_fresh_controller()
         segment = sync.Segment('test-segment',
             services=self.services,
@@ -451,7 +451,7 @@ class TestLocalSyncController(unittest.TestCase):
         self.assertEqual(output[0]['first_heartbeat'], output[0]['last_heartbeat'])
 
     @mock.patch("trough.sync.client")
-    def test_sync_discard_uninteresting_segments(self, snakebite):
+    def test_sync_discard_uninteresting_segments(self, hdfs_client):
         with tempfile.TemporaryDirectory() as tmp_dir:
             controller = self.make_fresh_controller()
             controller.local_data = tmp_dir
@@ -559,7 +559,7 @@ class TestLocalSyncController(unittest.TestCase):
             hdfs.mkdir(controller.hdfs_path)
 
     @mock.patch("trough.sync.client")
-    def test_hdfs_resiliency(self, snakebite):
+    def test_hdfs_resiliency(self, hdfs_client):
         sync.init(self.rethinker)
         self.rethinker.table('lock').delete().run()
         self.rethinker.table('assignment').delete().run()
@@ -575,7 +575,7 @@ class TestLocalSyncController(unittest.TestCase):
                 yield {'length': 1024 * 1000, 'path': '/1.sqlite', 'modification_time': (time.time() + 1000000) * 1000}
             def copyToLocal(*args, **kwargs):
                 return [{'error':'There was a problem...'}]
-        snakebite.Client = C
+        hdfs_client.Client = C
         controller = self.make_fresh_controller()
         controller.sync()
         class C:
@@ -588,7 +588,7 @@ class TestLocalSyncController(unittest.TestCase):
                     raise Exception("HDFS IS DOWN")
                     yield 0
                 return g()
-        snakebite.Client = C
+        hdfs_client.Client = C
         controller = self.make_fresh_controller()
         controller.sync()
         class C:
@@ -604,7 +604,7 @@ class TestLocalSyncController(unittest.TestCase):
                     raise Exception("HDFS IS DOWN")
                     yield 0
                 return g()
-        snakebite.Client = C
+        hdfs_client.Client = C
         controller = self.make_fresh_controller()
         controller.sync()
         self.rethinker.table('lock').delete().run()

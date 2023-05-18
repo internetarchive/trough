@@ -4,6 +4,7 @@ import logging
 import doublethink
 import rethinkdb as r
 from trough.settings import settings, init_worker, try_init_sentry
+os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
 import pyarrow
 # from snakebite import client
 import socket
@@ -20,7 +21,6 @@ import re
 import contextlib
 from uhashring import HashRing
 import ujson
-# from hdfs3 import HDFileSystem
 import threading
 import tempfile
 from concurrent import futures
@@ -173,8 +173,9 @@ def init(rethinker):
     except Exception as e:
         pass
 
-    snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-    for d in snakebite_client.mkdir([settings['HDFS_PATH']], create_parent=True):
+    # https: // arrow.apache.org / docs / python / generated / pyarrow.fs.HadoopFileSystem.html
+    hdfs_client = pyarrow.fs.HadoopFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    for d in hdfs_client.mkdir([settings['HDFS_PATH']], create_parent=True):
         logging.info('created hdfs dir %r', d)
 
 class Segment(object):
@@ -808,8 +809,8 @@ class LocalSyncController(SyncController):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_dest = os.path.join(tmpdir, "%s.sqlite" % segment.id)
             logging.debug('running snakebite.Client.copyToLocal(%r, %r)', source, tmp_dest)
-            snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-            for f in snakebite_client.copyToLocal(source, tmp_dest):
+            hdfs_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+            for f in hdfs_client.copyToLocal(source, tmp_dest):
                 if f.get('error'):
                     raise Exception('Copying HDFS file %r to %r produced an error: %r' % (source, tmp_dest, f['error']))
                 logging.debug('copying from hdfs succeeded, moving %s to %s', tmp_dest, segment.local_path())

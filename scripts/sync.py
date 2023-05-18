@@ -25,7 +25,7 @@ if __name__ == '__main__':
     logging.getLogger('requests.packages.urllib3').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('asyncio').setLevel(logging.WARNING)
-    logging.getLogger('snakebite').setLevel(logging.INFO)
+    logging.getLogger('pyarrow').setLevel(logging.INFO)
 
     controller = trough.sync.get_controller(args.server)
     controller.start()
