@@ -4,6 +4,7 @@ import logging
 import doublethink
 import rethinkdb as r
 from trough.settings import settings, init_worker, try_init_sentry
+import os
 os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
 import pyarrow
 # from snakebite import client
