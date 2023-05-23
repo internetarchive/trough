@@ -6,7 +6,7 @@ import rethinkdb as r
 from trough.settings import settings, init_worker, try_init_sentry
 import os
 os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
-import pyarrow
+from pyarrow import fs
 # from snakebite import client
 import socket
 import json
@@ -175,7 +175,7 @@ def init(rethinker):
         pass
 
     # https: // arrow.apache.org / docs / python / generated / pyarrow.fs.HadoopFileSystem.html
-    hdfs_client = pyarrow.fs.HadoopFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    hdfs_client = fs.HadoopFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
     for d in hdfs_client.mkdir([settings['HDFS_PATH']], create_parent=True):
         logging.info('created hdfs dir %r', d)
 
