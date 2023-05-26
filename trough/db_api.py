@@ -1,4 +1,4 @@
-import rethinkdb as r
+import rethinkdb as rdb
 import ujson as json
 import datetime
 import re
@@ -9,6 +9,8 @@ import logging
 from urllib.parse import urlparse, urlencode
 from http.client import HTTPConnection
 import socks
+
+r = rdb.RethinkDB()
 
 def healthy_services_query(rethinker, role):
     return rethinker.table('services').filter({"role": role}).filter(

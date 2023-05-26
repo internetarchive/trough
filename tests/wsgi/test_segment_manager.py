@@ -4,7 +4,7 @@ import ujson
 import trough
 from trough.settings import settings
 import doublethink
-import rethinkdb as r
+import rethinkdb as rdb
 import requests # :-\ urllib3?
 os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
 import pyarrow
@@ -14,6 +14,8 @@ import os
 import sqlite3
 import logging
 import socket
+
+r = rdb.RethinkDB()
 
 trough.settings.configure_logging()
 

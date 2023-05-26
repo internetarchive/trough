@@ -7,7 +7,7 @@ from trough import sync
 from trough.settings import settings
 import time
 import doublethink
-import rethinkdb as r
+import rethinkdb as rdb
 import random
 import string
 import tempfile
@@ -15,6 +15,8 @@ import logging
 os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
 import pyarrow
 import pytest
+
+r = rdb.RethinkDB()
 
 random_db = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
 
