@@ -3,7 +3,7 @@ import os
 import socket
 import sys
 
-import snakebite.errors
+# import snakebite.errors
 import sqlite3
 import yaml
 
@@ -15,8 +15,7 @@ def configure_logging():
         '(%(filename)s:%(lineno)d) %(message)s'))
     logging.getLogger('requests.packages.urllib3').setLevel(level + 20)
     logging.getLogger('urllib3').setLevel(level + 20)
-    logging.getLogger('snakebite').setLevel(level + 10)
-    logging.getLogger('hdfs3').setLevel(level + 10)
+    logging.getLogger('pyarrow').setLevel(level + 10)
     
     #emit warning if settings file failed to load properly
     if file_load_error is not None:
@@ -119,7 +118,7 @@ def init_worker():
 # These exceptions are filtered to reduce excessive event volume from
 # burdenting sentry infrastructure.
 SENTRY_FILTERED_EXCEPTIONS = (
-    snakebite.errors.FileNotFoundException,
+    # snakebite.errors.FileNotFoundException,
     sqlite3.DatabaseError,
     sqlite3.OperationalError,
 )

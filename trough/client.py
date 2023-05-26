@@ -26,12 +26,14 @@ import os
 import json
 import requests
 import doublethink
-import rethinkdb as r
+import rethinkdb as rdb
 import datetime
 import threading
 import time
 import collections
 from aiohttp import ClientSession
+
+r = rdb.RethinkDB()
 
 class TroughException(Exception):
     def __init__(self, message, payload=None, returned_message=None):

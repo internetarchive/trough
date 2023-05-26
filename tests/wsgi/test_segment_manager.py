@@ -4,15 +4,18 @@ import ujson
 import trough
 from trough.settings import settings
 import doublethink
-import rethinkdb as r
+import rethinkdb as rdb
 import requests # :-\ urllib3?
-import hdfs3
+os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
+import pyarrow
 import time
 import tempfile
 import os
 import sqlite3
 import logging
 import socket
+
+r = rdb.RethinkDB()
 
 trough.settings.configure_logging()
 
@@ -256,10 +259,10 @@ def test_schemas(segment_manager_server):
     # XXX DELETE?
 
 def test_promotion(segment_manager_server):
-    hdfs = hdfs3.HDFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    hdfs_client = pyarrow.fs.HadoopFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
 
-    hdfs.rm(settings['HDFS_PATH'])
-    hdfs.mkdir(settings['HDFS_PATH'])
+    hdfs_client.rm(settings['HDFS_PATH'])
+    hdfs_client.mkdir(settings['HDFS_PATH'])
 
     result = segment_manager_server.get('/promote')
     assert result.status == '405 METHOD NOT ALLOWED'
@@ -285,7 +288,7 @@ def test_promotion(segment_manager_server):
     expected_remote_path = os.path.join(
             settings['HDFS_PATH'], 'test_promot', 'test_promotion.sqlite')
     with pytest.raises(FileNotFoundError):
-        hdfs.ls(expected_remote_path, detail=True)
+        hdfs_client.ls(expected_remote_path, detail=True)
 
     # now write to the segment and promote it to HDFS
     before = time.time()
@@ -307,7 +310,7 @@ def test_promotion(segment_manager_server):
     assert not result.get('under_promotion')
 
     # let's see if it's hdfs
-    listing_after_promotion = hdfs.ls(expected_remote_path, detail=True)
+    listing_after_promotion = hdfs_client.ls(expected_remote_path, detail=True)
     assert len(listing_after_promotion) == 1
     assert listing_after_promotion[0]['last_mod'] > before
 
@@ -316,7 +319,7 @@ def test_promotion(segment_manager_server):
     size = None
     with tempfile.TemporaryDirectory() as tmpdir:
         local_copy = os.path.join(tmpdir, 'test_promotion.sqlite')
-        hdfs.get(expected_remote_path, local_copy)
+        hdfs_client.get(expected_remote_path, local_copy)
         conn = sqlite3.connect(local_copy)
         cur = conn.execute('select * from foo')
         assert cur.fetchall() == [('testing segment promotion',)]
@@ -353,7 +356,7 @@ def test_promotion(segment_manager_server):
     assert not result.get('under_promotion')
 
     # let's see if it's hdfs
-    listing_after_promotion = hdfs.ls(expected_remote_path, detail=True)
+    listing_after_promotion = hdfs_client.ls(expected_remote_path, detail=True)
     assert len(listing_after_promotion) == 1
     assert listing_after_promotion[0]['last_mod'] > before
 
@@ -370,7 +373,7 @@ def test_promotion(segment_manager_server):
                 data=ujson.dumps({'segment': 'test_promotion'}))
 
 def test_delete_segment(segment_manager_server):
-    hdfs = hdfs3.HDFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    hdfs_client = pyarrow.fs.HadoopFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
     rethinker = doublethink.Rethinker(
             servers=settings['RETHINKDB_HOSTS'], db='trough_configuration')
 
@@ -409,7 +412,7 @@ def test_delete_segment(segment_manager_server):
             settings['HDFS_PATH'], 'test_delete_segm',
             'test_delete_segment.sqlite')
     with pytest.raises(FileNotFoundError):
-        hdfs.ls(expected_remote_path, detail=True)
+        hdfs_client.ls(expected_remote_path, detail=True)
 
     # promote segment to hdfs
     result = segment_manager_server.post(
@@ -422,7 +425,7 @@ def test_delete_segment(segment_manager_server):
     assert result_dict == {'remote_path': expected_remote_path}
 
     # let's see if it's hdfs
-    hdfs_ls = hdfs.ls(expected_remote_path, detail=True)
+    hdfs_ls = hdfs_client.ls(expected_remote_path, detail=True)
     assert len(hdfs_ls) == 1
 
     # add an assignment (so we can check it is deleted successfully)

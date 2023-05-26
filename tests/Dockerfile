@@ -1,7 +1,7 @@
 #
 # Dockerfile for trough tests
 #
-# Copyright (C) 2015-2017 Internet Archive
+# Copyright (C) 2015-2023 Internet Archive
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -19,7 +19,7 @@
 # USA.
 #
 
-FROM phusion/baseimage
+FROM phusion/baseimage:focal-1.2.0
 
 # see https://github.com/stuartpb/rethinkdb-dockerfiles/blob/master/trusty/2.1.3/Dockerfile
 # and https://github.com/chali/hadoop-cdh-pseudo-docker/blob/master/Dockerfile
@@ -29,8 +29,10 @@ ENV LANG=C.UTF-8
 RUN apt-get update && apt-get --auto-remove -y dist-upgrade
 
 # Add the RethinkDB repository and public key
-RUN curl -s https://download.rethinkdb.com/apt/pubkey.gpg | apt-key add - \
-    && echo "deb http://download.rethinkdb.com/apt xenial main" > /etc/apt/sources.list.d/rethinkdb.list \
+
+RUN curl -s https://download.rethinkdb.com/repository/raw/pubkey.gpg | \
+    gpg --dearmor -o /usr/share/keyrings/rethinkdb-archive-keyrings.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/rethinkdb-archive-keyrings.gpg] https://download.rethinkdb.com/repository/ubuntu-$(lsb_release -cs) $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/rethinkdb.list \
     && apt-get update && apt-get -y install rethinkdb
 
 RUN mkdir -vp /etc/service/rethinkdb \

@@ -3,7 +3,7 @@ import glob
 
 setup(
     name='Trough',
-    version='0.2.0',
+    version='0.3a1',
     packages=[
         'trough',
         'trough.shell',
@@ -20,22 +20,22 @@ setup(
         'License :: OSI Approved :: BSD License',
     ],
     install_requires=[
-        'protobuf>=3.7.1,<4',
+        'protobuf>=3.15.0,<4',
+        'pyarrow==12.0.*',
         'PyYAML>=5.1',
         'requests>=2.21.0',
         'six>=1.10.0',
-        'snakebite-py3>=3.0',
         'ujson-ia>=2.1.1',
-        'sqlparse>=0.2.2',
+        'sqlparse>=0.4.4',
         'uWSGI>=2.0.15',
-        'doublethink>=0.2.0',
+        'doublethink>=0.3.0',
         'uhashring>=0.7,<1.0',
         'flask>=1.0.2,<2',
-        'sqlitebck>=1.4',
-        'hdfs3>=0.2.0',
-        'aiodns>=1.2.0',
-        'aiohttp>=2.3.10,<=3.0.0b0', # >3.0.0b0 requires python 3.5.3+
-        'async-timeout<3.0.0',       # >=3.0.0 requires python 3.5.3+
+        'MarkUpSafe<2.1',
+        'itsdangerous<2.1',
+        'aiodns==3.0.0',
+        'aiohttp==3.8.4', # 3.8.4 requires python 3.6+
+        'async-timeout==4.0.2', # 4.0.2 requires python 3.6+
     ],
     tests_require=['pytest'],
     scripts=glob.glob('scripts/*.py'),

@@ -2,9 +2,12 @@
 import abc
 import logging
 import doublethink
-import rethinkdb as r
+import rethinkdb as rdb
 from trough.settings import settings, init_worker, try_init_sentry
-from snakebite import client
+import os
+os.environ['ARROW_LIBHDFS_DIR']="/opt/cloudera/parcels/CDH/lib64" # for example
+from pyarrow import fs
+# from snakebite import client
 import socket
 import json
 import os
@@ -19,10 +22,11 @@ import re
 import contextlib
 from uhashring import HashRing
 import ujson
-from hdfs3 import HDFileSystem
 import threading
 import tempfile
 from concurrent import futures
+
+r = rdb.RethinkDB()
 
 class ClientError(Exception):
     pass
@@ -172,8 +176,9 @@ def init(rethinker):
     except Exception as e:
         pass
 
-    snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-    for d in snakebite_client.mkdir([settings['HDFS_PATH']], create_parent=True):
+    # https: // arrow.apache.org / docs / python / generated / pyarrow.fs.HadoopFileSystem.html
+    hdfs_client = fs.HadoopFileSystem(settings['HDFS_HOST'], settings['HDFS_PORT'])
+    for d in hdfs_client.mkdir([settings['HDFS_PATH']], create_parent=True):
         logging.info('created hdfs dir %r', d)
 
 class Segment(object):
@@ -807,8 +812,8 @@ class LocalSyncController(SyncController):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_dest = os.path.join(tmpdir, "%s.sqlite" % segment.id)
             logging.debug('running snakebite.Client.copyToLocal(%r, %r)', source, tmp_dest)
-            snakebite_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
-            for f in snakebite_client.copyToLocal(source, tmp_dest):
+            hdfs_client = client.Client(settings['HDFS_HOST'], settings['HDFS_PORT'])
+            for f in hdfs_client.copyToLocal(source, tmp_dest):
                 if f.get('error'):
                     raise Exception('Copying HDFS file %r to %r produced an error: %r' % (source, tmp_dest, f['error']))
                 logging.debug('copying from hdfs succeeded, moving %s to %s', tmp_dest, segment.local_path())
@@ -1110,7 +1115,6 @@ class LocalSyncController(SyncController):
         return result_dict
 
     def do_segment_promotion(self, segment):
-        import sqlitebck
         hdfs = HDFileSystem(host=self.hdfs_host, port=self.hdfs_port)
         with tempfile.NamedTemporaryFile() as temp_file:
             # "online backup" see https://www.sqlite.org/backup.html
@@ -1119,7 +1123,12 @@ class LocalSyncController(SyncController):
                     temp_file.name)
             source = sqlite3.connect(segment.local_path())
             dest = sqlite3.connect(temp_file.name)
-            sqlitebck.copy(source, dest)
+            # originally: sqlitebck.copy(source, dest)
+            # see https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup
+            # do we want to set pages value? "the number of pages to copy at a time
+            # If equal to or less than 0, the entire database is copied in a single step.
+            # Defaults to -1."
+            source.backup(dest)
             source.close()
             dest.close()
             logging.info(
