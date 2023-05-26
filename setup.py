@@ -28,7 +28,7 @@ setup(
         'ujson-ia>=2.1.1',
         'sqlparse>=0.4.4',
         'uWSGI>=2.0.15',
-        'doublethink=git+https://github.com/internetarchive/doublethink.git@refs/pull/15/head',
+        'doublethink>=0.3.0',
         'uhashring>=0.7,<1.0',
         'flask>=1.0.2,<2',
         'MarkUpSafe<2.1',
