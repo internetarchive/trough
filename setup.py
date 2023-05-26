@@ -21,7 +21,7 @@ setup(
     ],
     install_requires=[
         'protobuf>=3.15.0,<4',
-        'pyarrow==12.0.0',
+        'pyarrow==12.0.*',
         'PyYAML>=5.1',
         'requests>=2.21.0',
         'six>=1.10.0',
