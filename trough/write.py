@@ -26,6 +26,7 @@ class WriteServer:
         if not query:
             raise Exception("No query provided.")
         # no sql parsing, if our chmod has write permission, allow all queries.
+        assert os.path.isfile(segment.local_path())
         connection = sqlite3.connect(segment.local_path())
         trough.sync.setup_connection(connection)
         try:
